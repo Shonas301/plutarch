@@ -12,7 +12,7 @@ PYTEST_COMMAND := $(PYTHON) -m pytest --cov=. --cov-fail-under=$(coverage_percen
 PIP_COMPILE := $(PYTHON) -m piptools compile --resolver=backtracking --no-emit-find-links --no-allow-unsafe --no-header --strip-extras --no-emit-index-url -q --no-emit-trusted-host
 
 
-all: lint test format build
+all: install-reqs lint test format build install-dev
 
 update-requirements: 
 	$(PIP_COMPILE) --upgrade --output-file=requirements-dev.txt $(DEV_INPUT_REQS)
@@ -40,3 +40,6 @@ install-reqs: update-requirements
 	
 install-dev:
 	$(PYTHON) -m pip install -e .
+
+test:
+	$(PYTEST_COMMAND)
