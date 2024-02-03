@@ -2,7 +2,7 @@ from datetime import datetime
 
 import discord
 import pytz
-from dicord.ext import commands
+from discord.ext import commands
 
 
 class RecordAudio(commands.Cog):

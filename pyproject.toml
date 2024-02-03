@@ -39,7 +39,7 @@ markers = [
 
 [tool.ruff]
 select = ["E501", "E", "F", "W", "I", "D", "A", "ARG", "B", "BLE", "C", "DTZ", "EM", "ERA", "EXE", "FBT", "G", "ICN", "INP", "ISC", "N", "PD", "PGH", "PIE", "PL", "PT", "PTH", "Q", "RET", "RUF", "S", "SIM", "T", "TCH", "TID", "TRY", "UP", "YTT"]
-ignore = ["E501", "S101", "EM101", "TRY003", "EXE002", "D104", "D100", "T201"]
+ignore = ["E501", "S101", "EM101", "TRY003", "EXE002", "D104", "D100", "T201", "RET504", "D107", "D103", "D101", "D102"]
 
 exclude = [
     ".venv",

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import logging.handlers
 import os
@@ -5,6 +6,8 @@ import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+
+from plutarch.commands import cogs
 
 logger = logging.getLogger("discord")
 
@@ -31,7 +34,7 @@ def init_logging():
 # initialize client
 def init_client():
     logger.info("Initializing discord bot")
-    intents = discord.Intents.default()
+    intents = discord.Intents.all()
     intents.message_content = True
     client = commands.Bot(intents=intents, command_prefix="%")
     return client
@@ -43,13 +46,20 @@ def init_env():
     load_dotenv()
 
 
+# initialize all commands and event listeners in the form of cogs
+async def init_cogs(client: commands.Bot):
+    for cog in cogs:
+        await client.add_cog(cog(client))
+
+
 # entrypoint
 def main():
     init_logging()
     init_env()
     client = init_client()
+    init_cogs(client)
     client.run(os.getenv("DISCORD_TOKEN"))
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

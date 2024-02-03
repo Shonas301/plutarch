@@ -21,3 +21,4 @@ parts/
 *.egg
 .ruff_cache/
 .python-version
+discord.log
