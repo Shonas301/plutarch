@@ -1,2 +1,5 @@
 discord.py
+flask
+gunicorn
 python-dotenv
+requests_oathlib
