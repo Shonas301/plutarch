@@ -1,12 +1,16 @@
+import logging
 from datetime import datetime
 
 import discord
 import pytz
 from discord.ext import commands
 
+logger = logging.getLogger(__name__)
+
 
 class RecordAudio(commands.Cog):
     def __init__(self, client):
+        logger.info("Initializing recording commands")
         self.client = client
         self.connections = {}
 
@@ -14,7 +18,7 @@ class RecordAudio(commands.Cog):
     async def record(self, ctx):
         channel = ctx.author.voice
 
-        time = datetime.now(pytz.eastern)
+        time = datetime.now(pytz.utc)
 
         if channel is None:
             await ctx.respond("You're not in a voice chat", ephemeral=True)

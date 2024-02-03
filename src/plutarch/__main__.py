@@ -49,16 +49,18 @@ def init_env():
 # initialize all commands and event listeners in the form of cogs
 async def init_cogs(client: commands.Bot):
     for cog in cogs:
+        logger.info('Initializing: %s', cog.__name__)
         await client.add_cog(cog(client))
+    return client
 
 
 # entrypoint
-def main():
+async def main():
     init_logging()
     init_env()
     client = init_client()
-    init_cogs(client)
-    client.run(os.getenv("DISCORD_TOKEN"))
+    await init_cogs(client)
+    await client.start(os.getenv("DISCORD_TOKEN"))
 
 
 if __name__ == "__main__":

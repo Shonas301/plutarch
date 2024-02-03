@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 class ReadyConnection(commands.Cog):
     def __init__(self, client):
+        logger.info("Initializing ready event listener")
         self.client = client
         self.connections = {}
 
