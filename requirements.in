@@ -1,6 +1,7 @@
 discord.py
 flask
 gunicorn
+pynacl
 python-dotenv
 pytz
 requests_oauthlib
