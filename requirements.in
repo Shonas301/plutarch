@@ -2,4 +2,5 @@ discord.py
 flask
 gunicorn
 python-dotenv
+pytz
 requests_oathlib
