@@ -4,13 +4,15 @@ import logging.handlers
 import os
 
 import discord
+import nest_asyncio
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from plutarch.commands import cogs
+from .commands import cogs
 
 logger = logging.getLogger("discord")
 
+nest_asyncio.apply()
 
 # setup logging
 def init_logging():
@@ -45,13 +47,10 @@ def init_env():
     logger.info("Initializing environment")
     load_dotenv()
 
-
-# initialize all commands and event listeners in the form of cogs
 async def init_cogs(client: commands.Bot):
     for cog in cogs:
         logger.info('Initializing: %s', cog.__name__)
         await client.add_cog(cog(client))
-    return client
 
 
 # entrypoint
@@ -59,8 +58,9 @@ async def main():
     init_logging()
     init_env()
     client = init_client()
-    await init_cogs(client)
-    await client.start(os.getenv("DISCORD_TOKEN"))
+    async with client:
+        await init_cogs(client)
+        client.run(os.getenv("DISCORD_TOKEN"))
 
 
 if __name__ == "__main__":

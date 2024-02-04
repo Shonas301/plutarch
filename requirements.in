@@ -1,6 +1,8 @@
-discord.py
+discord-ext-voice-recv
+discord.py @ git+https://github.com/Rapptz/discord.py.git
 flask
 gunicorn
+nest_asyncio
 pynacl
 python-dotenv
 pytz
