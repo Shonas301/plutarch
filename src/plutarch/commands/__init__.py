@@ -3,4 +3,4 @@ from .record_audio import RecordAudio
 
 cogs = [RecordAudio, ReadyConnection]
 
-__all__ = ['cogs']
+__all__ = ["cogs"]

@@ -3,7 +3,6 @@ import logging
 import discord
 from discord.ext import commands
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -21,5 +20,3 @@ class ReadyConnection(commands.Cog):
             activity=discord.Activity(type=discord.ActivityType.watching, name="time"),
             status="online",
         )
-
-

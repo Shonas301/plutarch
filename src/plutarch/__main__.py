@@ -14,6 +14,7 @@ logger = logging.getLogger("discord")
 
 nest_asyncio.apply()
 
+
 # setup logging
 def init_logging():
     logger.setLevel(logging.INFO)
@@ -47,9 +48,10 @@ def init_env():
     logger.info("Initializing environment")
     load_dotenv()
 
+
 async def init_cogs(client: commands.Bot):
     for cog in cogs:
-        logger.info('Initializing: %s', cog.__name__)
+        logger.info("Initializing: %s", cog.__name__)
         await client.add_cog(cog(client))
 
 
