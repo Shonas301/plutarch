@@ -22,3 +22,6 @@ parts/
 .ruff_cache/
 .python-version
 discord.log
+*.mp3
+*.mp4
+*.wav
