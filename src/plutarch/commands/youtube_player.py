@@ -29,7 +29,6 @@ discord.opus._load_default()
 class AudioLinkPlayer(commands.Cog):
     def __init__(self, client):
         logger.info("Initializing recording commands")
-        self.queue = {}
 
     @commands.command(name="play")
     async def play(self, ctx, youtube_url):
@@ -52,7 +51,6 @@ class AudioLinkPlayer(commands.Cog):
             await ctx.send("The link is not a youtube link", ephemeral=True)
             return
         await ctx.send(f"Playing {youtube_url}")
-        self.queue[channel] += youtube_url
         voice = await channel.channel.connect()
         voice.play(
             discord.FFmpegPCMAudio(source, executable=FFMPEG, **FFMPEG_OPTS),
