@@ -52,7 +52,7 @@ DISCORD_CLIENT_SECRET=
 DISCORD_TOKEN=
 OAUTH2_REDIRECT_URI= // oauth callback ex: http://localhost:5000/callback when local
 WHISPER_MODEL= // small,base,medium,large,huge
-YT_DOMAIN= // www.youtube.com
+YT_DO"/usr/local/lib/libopus.dylib"MAIN= // www.youtube.com
 FFMPEG= // location of ffmpeg cli tool
 OPUS= // location of .dll or .dylib opus file ex: /usr/local/lib/libopus.dylib
 ```

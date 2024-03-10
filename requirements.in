@@ -1,4 +1,4 @@
-discord-ext-voice-recv
+discord-ext-voice-recv @ git+https://github.com/Shonas301/discord-ext-voice-recv.git@multi-wave-sink
 discord.py @ git+https://github.com/Shonas301/discord.py.git@debug-timeout
 discord.py[voice]
 flask

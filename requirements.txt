@@ -14,7 +14,7 @@ charset-normalizer==3.3.2
     # via requests
 click==8.1.7
     # via flask
-discord-ext-voice-recv==0.4.2a145
+discord-ext-voice-recv @ git+https://github.com/Shonas301/discord-ext-voice-recv.git@multi-wave-sink
     # via -r requirements.in
 discord-py @ git+https://github.com/Shonas301/discord.py.git@debug-timeout
     # via
@@ -104,7 +104,7 @@ tqdm==4.66.2
     # via openai-whisper
 typing-extensions==4.9.0
     # via torch
-urllib3==2.2.0
+urllib3==2.2.1
     # via requests
 werkzeug==3.0.1
     # via flask

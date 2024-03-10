@@ -4,9 +4,7 @@ from pathlib import Path
 
 from setuptools import find_namespace_packages, setup
 
-IS_FROZEN = os.environ.get("FROZEN_REQUIREMENTS") == "plutarch"
-FROZEN_VERSION = "+frozen" if IS_FROZEN else "+release"
-REQUIREMENTS_FILE = "requirements.txt" if IS_FROZEN else "requirements.in"
+REQUIREMENTS_FILE = "requirements.in"
 
 
 def get_requirements(requirements_file):
@@ -29,7 +27,7 @@ def get_requirements(requirements_file):
 
 setup(
     name="plutarch",
-    version="0.0.1" + FROZEN_VERSION,
+    version="0.0.1",
     description="""A python package for transcribing different audio channels from Discord.""",
     author="Jason Shipp",
     author_email="bit.shonas@gmail.com",

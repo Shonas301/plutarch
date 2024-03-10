@@ -10,23 +10,31 @@ import pytz
 import requests
 from discord.ext import commands
 from youtube_dl import YoutubeDL
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-DOMAIN = os.getenv("YT_DOMAIN")
+load_dotenv()
+YT_DOMAIN = os.getenv("YT_DOMAIN")
+# SOUNDCLOUD_DOMAIN = os.getenv("SOUNDCLOUD_DOMAIN")
+SOUNDCLOUD_DOMAIN = "soundcloud.com"
 FFMPEG = os.getenv("FFMPEG")
-OPUS_LOC = os.getenv("OPUS") 
+OPUS_LOC = os.getenv("OPUS")
 
-discord.opus.load_opus(OPUS_LOC)
+# opus = ctypes.util.
+# discord.opus.load_opus(OPUS_LOC)
+discord.opus._load_default()
 
 
-class YoutubePlayer(commands.Cog):
+class AudioLinkPlayer(commands.Cog):
     def __init__(self, client):
         logger.info("Initializing recording commands")
+        self.queue = {}
 
     @commands.command(name="play")
     async def play(self, ctx, youtube_url):
         channel = ctx.author.voice
+        if ctx.author.
         FFMPEG_OPTS = {
             "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
             "options": "-vn",
@@ -36,11 +44,16 @@ class YoutubePlayer(commands.Cog):
             await ctx.send("You're not in a voice chat", ephemeral=True)
             return
         url_portions = urlparse(youtube_url)
-        if url_portions.netloc != DOMAIN:
+        print(url_portions)
+        if url_portions.netloc == YT_DOMAIN:
+            _, source = search_youtube(youtube_url)
+        elif url_portions.netloc == SOUNDCLOUD_DOMAIN:
+            _, source = search_soundcloud(youtube_url)
+        else:
             await ctx.send("The link is not a youtube link", ephemeral=True)
             return
         await ctx.send(f"Playing {youtube_url}")
-        _, source = search(youtube_url)
+        self.queue[channel] += youtube_url
         voice = await channel.channel.connect()
         voice.play(
             discord.FFmpegPCMAudio(source, executable=FFMPEG, **FFMPEG_OPTS),
@@ -55,7 +68,7 @@ class YoutubePlayer(commands.Cog):
         return
 
 
-def search(query):
+def search_youtube(query):
     with YoutubeDL({"format": "bestaudio", "noplaylist": "True"}) as ydl:
         try:
             requests.get(query)
@@ -64,3 +77,10 @@ def search(query):
         else:
             info = ydl.extract_info(query, download=False)
     return (info, info["formats"][0]["url"])
+
+
+def search_soundcloud(query):
+    with YoutubeDL() as ydl:
+        requests.get(query)
+        info = ydl.extract_info(query, download=False)
+        return (info, info["formats"][0]["url"])
