@@ -34,7 +34,6 @@ class AudioLinkPlayer(commands.Cog):
     @commands.command(name="play")
     async def play(self, ctx, youtube_url):
         channel = ctx.author.voice
-        if ctx.author.
         FFMPEG_OPTS = {
             "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
             "options": "-vn",
