@@ -19,7 +19,7 @@
 #     """Endpoint AudioSink that generates a wav file.
 #     Best used in conjunction with a silence generating sink. (TBD)
 #     """
-    
+
 
 #     CHANNELS = OpusDecoder.CHANNELS
 #     SAMPLE_WIDTH = OpusDecoder.SAMPLE_SIZE // OpusDecoder.CHANNELS
@@ -43,7 +43,6 @@
 #         if self._files.get(user.display_name):
 #             self._files[user.display_name].writeframes(data.pcm)
 #         self._parent_file.writeframes(data.pcm)
-
 
 
 # class RecordAudio(commands.Cog):

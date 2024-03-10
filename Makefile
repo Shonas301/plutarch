@@ -1,6 +1,6 @@
 .PHONY: lint test build format all update-requirements lint-fix install-dev
 
-PYTHON := python3.12
+PYTHON := python
 
 tests_dir := tests
 
