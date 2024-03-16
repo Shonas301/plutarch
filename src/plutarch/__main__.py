@@ -17,8 +17,8 @@ nest_asyncio.apply()
 
 # setup logging
 def init_logging():
-    logger.setLevel(logging.INFO)
-    logging.getLogger("discord.http").setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
+    logging.getLogger("discord.http").setLevel(logging.DEBUG)
 
     handler = logging.handlers.RotatingFileHandler(
         filename="discord.log",

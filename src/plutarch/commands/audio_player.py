@@ -1,18 +1,23 @@
 import asyncio
 import logging
 import os
-from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import discord
 import requests
-from discord import VoiceChannel, VoiceClient
+from discord import Client, StageChannel, VoiceChannel, VoiceClient
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from youtube_dl import YoutubeDL
 
-from .state_interface import VoiceChannelCog
+from plutarch.commands.exceptions import AudioUrlError
+
+from .state_interface import VoiceChannelCog, VoiceMeta
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -35,20 +40,17 @@ class ChannelState:
     queue: list[str] = field(default_factory=list)
     playing: str = ""
     remain_connected: bool = False
-    client: VoiceClient = None
+    client: VoiceClient | None = None
 
 
-class Meta(type(commands.Cog), type(VoiceChannelCog)):
-    pass
-
-
-class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=Meta):
-    def __init__(self, client):
+class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
+    def __init__(self, client: Client):
         logger.info("Initializing recording commands")
         self.join_active_cogs()
         self.channels_info: Mapping[int, ChannelState] = {}
-        self.enqueued = []
+        self.enqueued: list[tuple[ChannelState, str]] = []
         self.play_queued.start()
+        self._client = client
 
     # Channel Agnostic Events
     async def cog_check(self, ctx):
@@ -58,9 +60,11 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=Meta):
             return False
         return True
 
-    async def leave_voice_channel(self, channel: VoiceChannel):
-        voice = self.channels_info[channel.id].connection
-        voice.stop()
+    async def leave_voice_channel(self, channel: VoiceChannel | StageChannel) -> None:
+        client = self.channels_info[channel.id].client
+        if client is None:
+            return
+        client.stop()
 
     @tasks.loop(seconds=1)
     async def play_queued(self):
@@ -73,7 +77,7 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=Meta):
 
     # Commands
     @commands.command(name="play")
-    async def play(self, ctx, url):
+    async def play(self, ctx: commands.Context, url: str):
         channel = ctx.author.voice.channel
         if channel.id in self.channels_info:
             state = self.channels_info[channel.id]
@@ -139,15 +143,15 @@ async def get_source(url):
     elif url_portions.netloc == SOUNDCLOUD_DOMAIN:
         _, source = search_soundcloud(url)
     else:
-        raise Exception("Not a valid url")
+        raise AudioUrlError("Not a valid url")
     return source
 
 
 def search_youtube(query):
     with YoutubeDL({"format": "bestaudio", "noplaylist": "True"}) as ydl:
         try:
-            requests.get(query)
-        except:
+            requests.get(query, timeout=30)
+        except requests.exceptions.HTTPError:
             info = ydl.extract_info(f"ytsearch:{query}", download=False)["entries"][0]
         else:
             info = ydl.extract_info(query, download=False)
@@ -156,6 +160,5 @@ def search_youtube(query):
 
 def search_soundcloud(query):
     with YoutubeDL() as ydl:
-        requests.get(query)
         info = ydl.extract_info(query, download=False)
         return (info, info["formats"][0]["url"])

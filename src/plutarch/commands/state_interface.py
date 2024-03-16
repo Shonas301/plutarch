@@ -1,18 +1,18 @@
 import asyncio
 import logging
-from abc import ABCMeta, abstractclassmethod
+from abc import ABC, abstractmethod
 from functools import cache
 
-from discord import Member, VoiceChannel, VoiceState
+from discord import Member, StageChannel, VoiceChannel, VoiceState
 from discord.ext import commands
 
 logger = logging.getLogger(__name__)
-COGS = []
+COGS: list[commands.Cog] = []
 
 
-class VoiceChannelCog(metaclass=ABCMeta):
-    @abstractclassmethod
-    async def leave_voice_channel(self, channel: VoiceChannel):
+class VoiceChannelCog(ABC):
+    @abstractmethod
+    async def leave_voice_channel(self, channel: VoiceChannel | StageChannel) -> None:
         pass
 
     def join_active_cogs(self):
@@ -23,13 +23,21 @@ class VoiceChannelCog(metaclass=ABCMeta):
 VoiceChannelCog.register(commands.Cog)
 
 
+class VoiceMeta(type(commands.Cog), type(VoiceChannelCog)):
+    pass
+
+
 class VoiceStateManager(commands.Cog):
     def __init__(self, client):
         logger.info("Initializing recording commands")
+        self.client = client
 
     @commands.Cog.listener()
     async def on_voice_state_update(
-        self, member: Member, before: VoiceState, after: VoiceState
+        self,
+        member: Member,  # noqa: ARG002
+        before: VoiceState,
+        after: VoiceState,
     ):
         active_voice_cogs = active_cogs()
         if after.channel is None:

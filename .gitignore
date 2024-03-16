@@ -25,3 +25,4 @@ discord.log
 *.mp3
 *.mp4
 *.wav
+.mypy_cache

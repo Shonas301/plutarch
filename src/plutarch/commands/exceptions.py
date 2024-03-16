@@ -1,0 +1,2 @@
+class AudioUrlError(Exception):
+    pass

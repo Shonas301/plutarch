@@ -1,3 +1,4 @@
 pip-tools
 ruff
 setuptools
+types-requests
