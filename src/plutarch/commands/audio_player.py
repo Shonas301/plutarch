@@ -1,25 +1,26 @@
 import asyncio
 import logging
 import os
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import discord
 import requests
-from discord import Client, StageChannel, VoiceChannel, VoiceClient
+from discord import Client, StageChannel, VoiceChannel
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from youtube_dl import YoutubeDL
 
 from plutarch.commands.exceptions import AudioUrlError
+from plutarch.commands.voice_connections import (
+    ChannelState,
+    PlayerChannelState,
+    get_channels,
+)
 
 from .state_interface import VoiceChannelCog, VoiceMeta
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
 logger = logging.getLogger(__name__)
+lock = asyncio.Semaphore()
 
 load_dotenv()
 YT_DOMAIN = "www.youtube.com"
@@ -34,20 +35,10 @@ FFMPEG_OPTS = {
 discord.opus._load_default()
 
 
-@dataclass
-class ChannelState:
-    channel: VoiceChannel
-    queue: list[str] = field(default_factory=list)
-    playing: str = ""
-    remain_connected: bool = False
-    client: VoiceClient | None = None
-
-
 class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
     def __init__(self, client: Client):
         logger.info("Initializing recording commands")
         self.join_active_cogs()
-        self.channels_info: Mapping[int, ChannelState] = {}
         self.enqueued: list[tuple[ChannelState, str]] = []
         self.play_queued.start()
         self._client = client
@@ -61,10 +52,11 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         return True
 
     async def leave_voice_channel(self, channel: VoiceChannel | StageChannel) -> None:
-        client = self.channels_info[channel.id].client
-        if client is None:
-            return
-        client.stop()
+        async with get_channels() as channels_info:
+            client = channels_info[channel.id].client
+            if client is None:
+                return
+            client.stop()
 
     @tasks.loop(seconds=1)
     async def play_queued(self):
@@ -79,58 +71,62 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
     @commands.command(name="play")
     async def play(self, ctx: commands.Context, url: str):
         channel = ctx.author.voice.channel
-        if channel.id in self.channels_info:
-            state = self.channels_info[channel.id]
+        player_state: PlayerChannelState
+        channels_info = get_channels()
+        if channel.id in channels_info:
+            state = channels_info[channel.id]
             if state.client is not None:
-                state.remain_connected = True
-                state.client.stop()
+                state.player.remain_connected = True
+                state.client.stop_playing()
+                player_state = state.player
         else:
-            state = ChannelState(channel)
-            self.channels_info[channel.id] = state
+            channels_info[channel.id] = state = ChannelState(channel)
+            channels_info[channel.id].player = player_state = PlayerChannelState()
+            await channels_info[channel.id].connect()
 
         source = await get_source(url)
-        state.playing = url
+        player_state.playing = url
         await self._play(state, source)
 
     @commands.command(name="queue")
     async def queue(self, ctx, url):
         channel = ctx.author.voice.channel
-        state = self.channels_info.get(channel.id)
-        if state:
-            state.queue.append(url)
-            state.remain_connected = True
-        else:
-            await self.play(ctx, url)
+        state: ChannelState | None = None
+        channels_info = get_channels()
+        state = channels_info[channel.id]
+        if state.player:
+            state.player.queue.append(url)
+            state.player.remain_connected = True
+        await self.play(ctx, url)
 
     @commands.command(name="stop")
     async def stop(self, ctx):
         channel = ctx.author.voice.channel
-        channel_state = self.channels_info[channel.id]
-        channel_state.remain_connected = False
+        channels_info = get_channels()
+        channel_state = channels_info[channel.id]
+        channel_state.player.remain_connected = False
         if channel_state.client:
-            channel_state.client.stop()
+            channel_state.client.stop_playing()
 
     # Connection actions
     async def _play(self, state, source):
-        state.client = state.client if state.client else await state.channel.connect()
-
         state.client.play(
             discord.FFmpegPCMAudio(source, executable=FFMPEG, **FFMPEG_OPTS),
             after=lambda e: print("done", e),
         )
         while state.client.is_playing():
             await asyncio.sleep(1)
-        if not state.remain_connected:
+        if not state.player.remain_connected:
             await self._disconnect(state)
-        if not len(state.queue):
+        if not len(state.player.queue):
             await self._disconnect(state)
         else:
             next_song = state.queue.pop(0)
             self.enqueued.append((state, next_song))
 
     async def _disconnect(self, state):
-        await state.client.disconnect()
-        state.remain_connected = False
+        state.client.disconnect()
+        state.player.remain_connected = False
         state.client = None
         self.queue = []
 

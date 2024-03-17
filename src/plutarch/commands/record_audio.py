@@ -2,8 +2,6 @@ import asyncio
 import logging
 import os
 import wave
-from collections.abc import Mapping
-from dataclasses import dataclass, field
 from datetime import datetime
 
 import discord
@@ -12,17 +10,15 @@ from discord.ext import commands, voice_recv
 from discord.opus import Decoder as OpusDecoder
 
 from plutarch.commands.state_interface import VoiceChannelCog, VoiceMeta
+from plutarch.commands.voice_connections import (
+    ChannelState,
+    RecorderChannelState,
+    get_channels,
+)
 from plutarch.transcribe.transcribe_wav import wav_to_text
 
 logger = logging.getLogger(__name__)
 discord.opus._load_default()
-
-
-@dataclass
-class ChannelState:
-    channel: discord.VoiceChannel
-    client: discord.VoiceClient | None = None
-    file_names: Mapping[str, str] = field(default_factory=list)
 
 
 class MultiWaveSink(voice_recv.AudioSink):
@@ -78,36 +74,41 @@ class RecordAudio(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         logger.info("Initializing recording commands")
         self.client = client
         self.file_names = {}
-        self.channels_info: Mapping[int, ChannelState] = {}
 
     @commands.command(name="record")
     async def record(self, ctx: commands.Context):
         channel = ctx.author.voice.channel
-        channel_info = ChannelState
-        self.channels_info[channel.id] = channel_info
-
+        channel_info: ChannelState
         if channel is None:
             await ctx.send("You're not in a voice chat", ephemeral=True)
             return
+        channels_info = get_channels()
+        if channel.id not in channels_info:
+            channels_info[channel.id] = channel_info = ChannelState(channel.id)
+        else:
+            channel_info = channels_info[channel.id]
+        if channels_info[channel.id].recorder is None:
+            channel_info.recorder = RecorderChannelState()
 
         await ctx.send("starting VC recording session")
 
-        channel_info.client = await channel.connect(cls=voice_recv.VoiceRecvClient)
-        channel_info.file_names = self.generate_file_names(channel)
+        if channel_info.client is None and not channel_info.client.is_connected:
+            await channel_info.connect()
+        channel_info.recorder.file_names = self.generate_file_names(channel)
         channel_info.client.listen(
-            MultiWaveSink(user_destinations=channel_info.file_names)
+            MultiWaveSink(user_destinations=channel_info.recorder.file_names)
         )
 
     @commands.command(name="stop-recording")
     async def stop_recording(self, ctx):
         await ctx.send("Disconnecting")
         await ctx.voice_client.disconnect()
+        channel = ctx.author.voice.channel
+        channel_info = get_channels()[channel.id]
 
         transcriptions = [
             wav_to_text(str(file_name))
-            for file_name in self.channels_info[
-                ctx.author.voice.channel.id
-            ].file_names.values()
+            for file_name in channel_info.recorder.file_names.values()
         ]
         results = await asyncio.gather(*transcriptions)
         await ctx.send(results)
@@ -136,7 +137,8 @@ class RecordAudio(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
     async def leave_voice_channel(
         self, channel: discord.VoiceChannel | discord.StageChannel
     ) -> None:
-        client = self.channels_info[channel.id].client
-        if client is None:
+        channels_info = get_channels()
+        client = channels_info[channel.id].client
+        if client is None or not client.is_connected:
             return
         client.stop()
