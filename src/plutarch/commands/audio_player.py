@@ -97,6 +97,7 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         if state.player:
             state.player.queue.append(url)
             state.player.remain_connected = True
+            return
         await self.play(ctx, url)
 
     @commands.command(name="stop")
@@ -107,6 +108,10 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         channel_state.player.remain_connected = False
         if channel_state.client:
             channel_state.client.stop_playing()
+
+    @commands.command(name="pause")
+    async def pause(self, ctx):
+        await ctx.send("-- Not yet implemented --")
 
     # Connection actions
     async def _play(self, state, source):
