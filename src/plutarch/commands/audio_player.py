@@ -96,14 +96,17 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
 
     @commands.command(name="queue")
     async def queue(self, ctx: commands.Context, url: str):
+        self.logger.info("user %s requested to queue %s", ctx.author.name, url)
         channel = ctx.author.voice.channel
         state: ChannelState | None = None
         channels_info = get_channels()
         state = channels_info[channel.id]
         if state.player:
+            self.logger.info("plutarch is already playing in channel, adding to queue")
             state.player.queue.append(url)
             state.player.remain_connected = True
             return
+        self.logger.info("No queue was found, playing in channel")
         await self.play(ctx, url)
 
     @commands.command(name="stop")
@@ -132,7 +135,7 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         if not len(state.player.queue):
             await self._disconnect(state)
         else:
-            next_song = state.queue.pop(0)
+            next_song = state.player.queue.pop(0)
             self.enqueued.append((state, next_song))
 
     async def _disconnect(self, state: ChannelState):
