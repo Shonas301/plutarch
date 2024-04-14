@@ -10,15 +10,15 @@ from dotenv import load_dotenv
 
 from .commands import cogs
 
-logger = logging.getLogger("discord")
+logger = logging.getLogger()
 
 nest_asyncio.apply()
 
 
 # setup logging
-def init_logging():
-    logger.setLevel(logging.DEBUG)
-    logging.getLogger("discord").setLevel(logging.DEBUG)
+def init_logging() -> logging.Handler:
+    logger.setLevel(logging.INFO)
+    logging.getLogger("discord").setLevel(logging.INFO)
 
     handler = logging.handlers.RotatingFileHandler(
         filename="discord.log",
@@ -32,6 +32,7 @@ def init_logging():
     )
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+    return handler
 
 
 # initialize client
@@ -57,12 +58,12 @@ async def init_cogs(client: commands.Bot):
 
 # entrypoint
 async def main():
-    init_logging()
+    log_handler = init_logging()
     init_env()
     client = init_client()
     async with client:
         await init_cogs(client)
-        client.run(os.getenv("DISCORD_TOKEN"))
+        client.run(os.getenv("DISCORD_TOKEN"), log_handler=log_handler)
 
 
 if __name__ == "__main__":

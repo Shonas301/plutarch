@@ -19,7 +19,6 @@ from plutarch.commands.voice_connections import (
 
 from .state_interface import VoiceChannelCog, VoiceMeta
 
-logger = logging.getLogger(__name__)
 lock = asyncio.Semaphore()
 
 load_dotenv()
@@ -37,7 +36,8 @@ discord.opus._load_default()
 
 class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
     def __init__(self, client: Client):
-        logger.info("Initializing recording commands")
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("Initializing recording commands")
         self.join_active_cogs()
         self.enqueued: list[tuple[ChannelState, str]] = []
         self.play_queued.start()
@@ -70,14 +70,20 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
     # Commands
     @commands.command(name="play")
     async def play(self, ctx: commands.Context, url: str):
+        self.logger.info("user %s requested to play %s", ctx.author.name, url)
         channel = ctx.author.voice.channel
         player_state: PlayerChannelState
         channels_info = get_channels()
+        self.logger.info("found channels: %s", channels_info)
         if channel.id in channels_info:
             state = channels_info[channel.id]
             if state.client is not None:
+                self.logger.info("client already exists")
                 state.player.remain_connected = True
                 state.client.stop_playing()
+                player_state = state.player
+            else:
+                await state.connect()
                 player_state = state.player
         else:
             channels_info[channel.id] = state = ChannelState(channel)
@@ -89,7 +95,7 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         await self._play(state, source)
 
     @commands.command(name="queue")
-    async def queue(self, ctx, url):
+    async def queue(self, ctx: commands.Context, url: str):
         channel = ctx.author.voice.channel
         state: ChannelState | None = None
         channels_info = get_channels()
@@ -101,7 +107,7 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         await self.play(ctx, url)
 
     @commands.command(name="stop")
-    async def stop(self, ctx):
+    async def stop(self, ctx: commands.Context):
         channel = ctx.author.voice.channel
         channels_info = get_channels()
         channel_state = channels_info[channel.id]
@@ -110,11 +116,11 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
             channel_state.client.stop_playing()
 
     @commands.command(name="pause")
-    async def pause(self, ctx):
+    async def pause(self, ctx: commands.Context):
         await ctx.send("-- Not yet implemented --")
 
     # Connection actions
-    async def _play(self, state, source):
+    async def _play(self, state: ChannelState, source):
         state.client.play(
             discord.FFmpegPCMAudio(source, executable=FFMPEG, **FFMPEG_OPTS),
             after=lambda e: print("done", e),
@@ -129,15 +135,19 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
             next_song = state.queue.pop(0)
             self.enqueued.append((state, next_song))
 
-    async def _disconnect(self, state):
-        state.client.disconnect()
-        state.player.remain_connected = False
-        state.client = None
-        self.queue = []
+    async def _disconnect(self, state: ChannelState):
+        self.logger.info(
+            "disconnecting audio player from server: %s", state.channel.name
+        )
+        if state.client is not None:
+            await state.client.disconnect()
+            state.player.remain_connected = False
+            state.client = None
+            self.queue = []
 
 
 # Media helper functions
-async def get_source(url):
+async def get_source(url: str):
     url_portions = urlparse(url)
     if url_portions.netloc == YT_DOMAIN:
         _, source = search_youtube(url)
