@@ -12,6 +12,8 @@ input_reqs := requirements.in
 
 PYTEST_COMMAND := $(PYTHON) -m pytest --cov=. --cov-fail-under=$(coverage_percent) --import-mode=importlib --cov-config=pyproject.toml --cov-report=xml:coverage.xml --cov-report=term-missing --cov-branch $(package_dir) $(tests_dir)
 PIP_COMPILE := $(PYTHON) -m piptools compile --resolver=backtracking --no-emit-find-links --no-allow-unsafe --no-header --strip-extras --no-emit-index-url -q --no-emit-trusted-host
+TWINE_PASSWORD ?=
+TWINE_USERNAME ?=
 
 
 all: install-reqs lint test format build install-dev
@@ -53,4 +55,4 @@ publish-dev:
 	$(PYTHON) -m pip install twine
 	$(PYTHON) -m pip install --upgrade build
 	$(PYTHON) -m build --sdist --wheel .
-	$(PYTHON) -m twine upload -r testpypi dist/*
+	$(PYTHON) -m twine upload -r testpypi dist/* -u ${TWINE_USERNAME} -p ${TWINE_PASSWORD}
