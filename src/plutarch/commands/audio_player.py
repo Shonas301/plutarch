@@ -8,7 +8,7 @@ import requests
 from discord import Client, StageChannel, VoiceChannel
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
-from youtube_dl import YoutubeDL
+from yt_dlp import YoutubeDL
 
 from plutarch.commands.exceptions import AudioUrlError
 from plutarch.commands.voice_connections import (
@@ -162,14 +162,14 @@ async def get_source(url: str):
 
 
 def search_youtube(query):
-    with YoutubeDL({"format": "bestaudio", "noplaylist": "True"}) as ydl:
+    with YoutubeDL({"format": 'm4a/bestaudio/best', "noplaylist": "True"}) as ydl:
         try:
             requests.get(query, timeout=30)
         except requests.exceptions.HTTPError:
             info = ydl.extract_info(f"ytsearch:{query}", download=False)["entries"][0]
         else:
             info = ydl.extract_info(query, download=False)
-    return (info, info["formats"][0]["url"])
+    return (info, info["url"])
 
 
 def search_soundcloud(query):

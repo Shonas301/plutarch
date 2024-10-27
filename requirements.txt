@@ -20,7 +20,7 @@ charset-normalizer==3.4.0
     # via requests
 click==8.1.7
     # via flask
-discord-ext-voice-recv @ git+https://github.com/Shonas301/discord-ext-voice-recv.git@multi-wave-sink
+discord-ext-voice-recv==0.4.2a145
     # via -r requirements.in
 discord-py==2.4.0
     # via
@@ -54,10 +54,6 @@ mutagen==1.47.0
     # via yt-dlp
 nest-asyncio==1.6.0
     # via -r requirements.in
-numpy==2.1.2
-    # via
-    #   discord-ext-voice-recv
-    #   scipy
 oauthlib==3.2.2
     # via requests-oauthlib
 opuslib==3.0.1
@@ -86,8 +82,6 @@ requests==2.32.3
     #   yt-dlp
 requests-oauthlib==2.0.0
     # via -r requirements.in
-scipy==1.14.1
-    # via discord-ext-voice-recv
 urllib3==2.2.3
     # via
     #   requests
@@ -98,7 +92,5 @@ werkzeug==3.0.6
     # via flask
 yarl==1.16.0
     # via aiohttp
-youtube-dl @ git+https://github.com/ytdl-org/ytdl-nightly.git
-    # via -r requirements.in
 yt-dlp==2024.10.22
     # via -r requirements.in

@@ -1,4 +1,4 @@
-discord-ext-voice-recv @ git+https://github.com/Shonas301/discord-ext-voice-recv.git@multi-wave-sink
+discord-ext-voice-recv
 discord.py
 discord.py[voice]
 flask
@@ -10,5 +10,4 @@ python-dotenv
 pytube
 pytz
 requests_oauthlib
-youtube_dl @ git+https://github.com/ytdl-org/ytdl-nightly.git
 yt-dlp

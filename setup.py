@@ -27,6 +27,7 @@ def get_requirements(requirements_file):
 
 setup(
     name="plutarch",
+    py_modules=["plutarch"],
     version="0.0.1",
     description="""A python package for transcribing different audio channels from Discord.""",
     author="Jason Shipp",
