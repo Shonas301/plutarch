@@ -31,7 +31,7 @@ setup(
     description="""A python package for transcribing different audio channels from Discord.""",
     author="Jason Shipp",
     author_email="bit.shonas@gmail.com",
-    python_requires="~=3.12",
+    python_requires="~=3.13",
     include_package_data=True,
     package_dir={"": "src"},
     packages=find_namespace_packages(where="src"),
