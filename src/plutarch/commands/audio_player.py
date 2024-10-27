@@ -8,7 +8,7 @@ import requests
 from discord import Client, StageChannel, VoiceChannel
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
-from youtube_dl import YoutubeDL
+from yt_dlp import YoutubeDL
 
 from plutarch.commands.exceptions import AudioUrlError
 from plutarch.commands.voice_connections import (
@@ -90,6 +90,7 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
             channels_info[channel.id].player = player_state = PlayerChannelState()
             await channels_info[channel.id].connect()
 
+        print("pre get_source")
         source = await get_source(url)
         player_state.playing = url
         await self._play(state, source)
@@ -124,6 +125,7 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
 
     # Connection actions
     async def _play(self, state: ChannelState, source):
+        print("_play")
         state.client.play(
             discord.FFmpegPCMAudio(source, executable=FFMPEG, **FFMPEG_OPTS),
             after=lambda e: print("done", e),
@@ -151,8 +153,10 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
 
 # Media helper functions
 async def get_source(url: str):
+    print("get_source")
     url_portions = urlparse(url)
     if url_portions.netloc == YT_DOMAIN:
+        print("search_youtube")
         _, source = search_youtube(url)
     elif url_portions.netloc == SOUNDCLOUD_DOMAIN:
         _, source = search_soundcloud(url)
@@ -169,7 +173,7 @@ def search_youtube(query):
             info = ydl.extract_info(f"ytsearch:{query}", download=False)["entries"][0]
         else:
             info = ydl.extract_info(query, download=False)
-    return (info, info["formats"][0]["url"])
+    return (info, info["url"])
 
 
 def search_soundcloud(query):
