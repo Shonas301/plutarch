@@ -1,10 +1,9 @@
 discord-ext-voice-recv @ git+https://github.com/Shonas301/discord-ext-voice-recv.git@multi-wave-sink
-discord.py @ git+https://github.com/Shonas301/discord.py.git@debug-timeout
+discord.py
 discord.py[voice]
 flask
 gunicorn
 nest_asyncio
-openai-whisper
 opuslib
 pynacl
 python-dotenv
@@ -12,3 +11,4 @@ pytube
 pytz
 requests_oauthlib
 youtube_dl @ git+https://github.com/ytdl-org/ytdl-nightly.git
+yt-dlp
