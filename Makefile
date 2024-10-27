@@ -32,19 +32,25 @@ lint-fix:
 	$(PYTHON) -m ruff format -q $(package_dir)
 	$(PYTHON) -m ruff format -q $(tests_dir)
 
-build:
-	$(setup) build
-	$(PYTHON) setup.py sdist
-	$(PYTHON) setup.py bdist_wheel
-
 install-reqs:
 	$(PYTHON) -m pip install -r requirements-dev.txt -r requirements.txt
 	
 install-dev:
 	$(PYTHON) -m pip install -e .
 
+build: install-reqs
+	$(setup) build
+	$(PYTHON) setup.py sdist
+	$(PYTHON) setup.py bdist_wheel
+
 test:
 	$(PYTEST_COMMAND)
 
 run:
 	$(PYTHON) -m plutarch
+
+publish-dev:
+	$(PYTHON) -m pip install twine
+	$(PYTHON) -m pip install --upgrade build
+	$(PYTHON) -m build --sdist --wheel .
+	$(PYTHON) -m twine upload -r testpypi dist/*
