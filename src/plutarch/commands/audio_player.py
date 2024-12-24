@@ -69,7 +69,7 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
 
     # Commands
     @commands.command(name="play")
-    async def play(self, ctx: commands.Context, url_input: str):
+    async def play(self, ctx: commands.Context, url_input: commands.Greedy[str]):
         self.logger.info("user %s requested to play %s", ctx.author.name, url_input)
         urls = url_input.split(" ")
         url = url_input[0]
@@ -97,9 +97,7 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         task = asyncio.create_task(self._play(state, source))
         asyncio.sleep(0)
         if len(urls):
-            await asyncio.gather(
-                *[self.queue(ctx, url) for url in urls[1:]]
-            )
+            await asyncio.gather(*[self.queue(ctx, url) for url in urls[1:]])
         await task
 
     @commands.command(name="queue")
