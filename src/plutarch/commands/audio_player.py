@@ -118,6 +118,28 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         if channel_state.client:
             channel_state.client.stop_playing()
 
+    @commands.command(name="skip")
+    async def skip(self, ctx: commands.Context):
+        """Skips the currently playing song and plays the next one in the queue."""
+        channel = ctx.author.voice.channel
+        channels_info = get_channels()
+        channel_state = channels_info[channel.id]
+
+        if not channel_state.player or not channel_state.client:
+            await ctx.send("Nothing is currently playing.")
+            return
+
+        if channel_state.client.is_playing():
+            channel_state.client.stop_playing()
+
+        if channel_state.player.queue:
+            next_song = channel_state.player.queue[0]
+            self.enqueued.append((channel_state, next_song))
+            await ctx.send(f"Skipping to the next song: {next_song}")
+        else:
+            await ctx.send("No more songs in the queue.")
+            await self._disconnect(channel_state)
+
     @commands.command(name="pause")
     async def pause(self, ctx: commands.Context):
         await ctx.send("-- Not yet implemented --")
@@ -162,7 +184,7 @@ async def get_source(url: str):
 
 
 def search_youtube(query):
-    with YoutubeDL({"format": 'm4a/bestaudio/best', "noplaylist": "True"}) as ydl:
+    with YoutubeDL({"format": "m4a/bestaudio/best", "noplaylist": "True"}) as ydl:
         try:
             requests.get(query, timeout=30)
         except requests.exceptions.HTTPError:
