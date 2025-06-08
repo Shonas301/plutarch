@@ -9,14 +9,13 @@ from discord import Client, StageChannel, VoiceChannel
 from discord.ext import commands, tasks
 from yt_dlp import YoutubeDL
 
-from plutarch.commands.exceptions import AudioUrlError
-from plutarch.commands.voice_connections import (
+from .exceptions import AudioUrlError
+from .state_interface import VoiceChannelCog, VoiceMeta
+from .voice_connections import (
     ChannelState,
     PlayerChannelState,
     get_channels,
 )
-
-from .state_interface import VoiceChannelCog, VoiceMeta
 
 YT_DOMAIN = "www.youtube.com"
 SOUNDCLOUD_DOMAIN = "soundcloud.com"
@@ -35,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
     def __init__(self, client: Client):
-        logger.info("Initializing recording commands")
+        logger.info("Initializing audio player commands")
         self.join_active_cogs()
         self.enqueued: list[tuple[ChannelState, str]] = []
         self.play_queued.start()
