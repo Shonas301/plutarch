@@ -17,7 +17,7 @@ nest_asyncio.apply()
 
 # setup logging
 def init_logging() -> logging.Handler:
-    logger.setLevel(logging.INFO)
+    logger.setLevel(os.getenv("logging_level", logging.INFO))
     logging.getLogger("discord").setLevel(logging.INFO)
 
     handler = logging.handlers.RotatingFileHandler(
@@ -46,7 +46,6 @@ def init_client():
 
 # initialize env, wrapping in a function incase future configs are needed
 def init_env():
-    logger.info("Initializing environment")
     load_dotenv()
 
 
@@ -58,8 +57,8 @@ async def init_cogs(client: commands.Bot):
 
 # entrypoint
 async def main():
-    log_handler = init_logging()
     init_env()
+    log_handler = init_logging()
     client = init_client()
     async with client:
         await init_cogs(client)

@@ -1,3 +1,4 @@
+aiohttp
 discord-ext-voice-recv
 discord.py
 discord.py[voice]

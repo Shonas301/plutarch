@@ -1,30 +1,32 @@
 build==1.2.2.post1
     # via pip-tools
-click==8.1.7
+click==8.2.1
     # via pip-tools
-iniconfig==2.0.0
+iniconfig==2.1.0
     # via pytest
-packaging==24.1
+packaging==25.0
     # via
     #   build
     #   pytest
 pip-tools==7.4.1
     # via -r requirements-dev.in
-pluggy==1.5.0
+pluggy==1.6.0
+    # via pytest
+pygments==2.19.1
     # via pytest
 pyproject-hooks==1.2.0
     # via
     #   build
     #   pip-tools
-pytest==8.3.3
+pytest==8.4.0
     # via -r requirements-dev.in
-ruff==0.7.1
+ruff==0.11.13
     # via -r requirements-dev.in
-types-requests==2.32.0.20241016
+types-requests==2.32.0.20250602
     # via -r requirements-dev.in
-urllib3==2.2.3
+urllib3==2.4.0
     # via types-requests
-wheel==0.44.0
+wheel==0.45.1
     # via pip-tools
 
 # The following packages are considered to be unsafe in a requirements file:
