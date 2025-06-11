@@ -56,3 +56,5 @@ publish-dev:
 	$(PYTHON) -m pip install --upgrade build
 	$(PYTHON) -m build --sdist --wheel .
 	$(PYTHON) -m twine upload -r testpypi dist/* -u ${TWINE_USERNAME} -p ${TWINE_PASSWORD}
+
+make-install: update-requirements install-dev run
