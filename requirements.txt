@@ -1,6 +1,6 @@
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.12.11
+aiohttp==3.12.13
     # via
     #   -r requirements.in
     #   discord-py
@@ -12,7 +12,7 @@ audioop-lts==0.2.1
     # via discord-py
 blinker==1.9.0
     # via flask
-certifi==2025.4.26
+certifi==2025.6.15
     # via requests
 cffi==1.17.1
     # via pynacl
@@ -20,7 +20,7 @@ charset-normalizer==3.4.2
     # via requests
 click==8.2.1
     # via flask
-discord-ext-voice-recv==0.4.2a145
+discord-ext-voice-recv==0.5.2a179
     # via -r requirements.in
 discord-py==2.5.2
     # via
@@ -28,7 +28,7 @@ discord-py==2.5.2
     #   discord-ext-voice-recv
 flask==3.1.1
     # via -r requirements.in
-frozenlist==1.6.2
+frozenlist==1.7.0
     # via
     #   aiohttp
     #   aiosignal
@@ -47,19 +47,19 @@ markupsafe==3.0.2
     #   flask
     #   jinja2
     #   werkzeug
-multidict==6.4.4
+multidict==6.5.0
     # via
     #   aiohttp
     #   yarl
 nest-asyncio==1.6.0
     # via -r requirements.in
-oauthlib==3.2.2
+oauthlib==3.3.0
     # via requests-oauthlib
 opuslib==3.0.1
     # via -r requirements.in
 packaging==25.0
     # via gunicorn
-propcache==0.3.1
+propcache==0.3.2
     # via
     #   aiohttp
     #   yarl
@@ -75,15 +75,15 @@ pytube==15.0.0
     # via -r requirements.in
 pytz==2025.2
     # via -r requirements.in
-requests==2.32.3
+requests==2.32.4
     # via requests-oauthlib
 requests-oauthlib==2.0.0
     # via -r requirements.in
-urllib3==2.4.0
+urllib3==2.5.0
     # via requests
 werkzeug==3.1.3
     # via flask
-yarl==1.20.0
+yarl==1.20.1
     # via aiohttp
-yt-dlp==2025.5.22
+yt-dlp==2025.6.9
     # via -r requirements.in

@@ -28,6 +28,7 @@ ignore_errors = true
 
 [tool.pytest.ini_options]
 addopts = "-vv --doctest-modules --doctest-report ndiff"
+asyncio_mode = "auto"
 doctest_optionflags= "NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL ELLIPSIS NUMBER"
 testpaths = [
     "tests",

@@ -52,7 +52,7 @@ class VoiceStateManager(commands.Cog):
     async def leave_if_channel_empty(cog: commands.Cog, previous_channel: VoiceChannel):
         member_count = len(previous_channel.members)
         if member_count == 1:
-            cog.leave_voice_channel(previous_channel)
+            await cog.leave_voice_channel(previous_channel)
 
 
 @cache

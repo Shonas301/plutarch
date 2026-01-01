@@ -26,3 +26,4 @@ discord.log
 *.mp4
 *.wav
 .mypy_cache
+discord-ext-voice-recv

@@ -13,8 +13,8 @@ from .exceptions import AudioUrlError
 from .state_interface import VoiceChannelCog, VoiceMeta
 from .voice_connections import (
     ChannelState,
+    ChannelStateManager,
     PlayerChannelState,
-    get_channels,
 )
 
 YT_DOMAIN = "www.youtube.com"
@@ -33,12 +33,13 @@ logger = logging.getLogger(__name__)
 
 
 class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
-    def __init__(self, client: Client):
+    def __init__(self, client: Client, state_manager: ChannelStateManager):
         logger.info("Initializing audio player commands")
         self.join_active_cogs()
         self.enqueued: list[tuple[ChannelState, str]] = []
         self.play_queued.start()
         self._client = client
+        self._state_manager = state_manager
 
     # Channel Agnostic Events
     async def cog_check(self, ctx):
@@ -51,11 +52,10 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
 
     async def leave_voice_channel(self, channel: VoiceChannel | StageChannel) -> None:
         logger.debug("leave_voice_channel called")
-        async with get_channels() as channels_info:
-            client = channels_info[channel.id].client
-            if client is None:
-                return
-            client.stop()
+        state = await self._state_manager.get(channel.id)
+        if state is None or state.client is None:
+            return
+        state.client.stop()
 
     @tasks.loop(seconds=1)
     async def play_queued(self):
@@ -73,26 +73,28 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         logger.debug("play called")
         logger.info("user %s requested to play %s", ctx.author.name, url)
         channel = ctx.author.voice.channel
-        player_state: PlayerChannelState
-        channels_info = get_channels()
-        logger.info("found channels: %s", channels_info)
-        if channel.id in channels_info:
-            state = channels_info[channel.id]
+
+        # get or create channel state
+        state = await self._state_manager.get(channel.id)
+        if state is not None:
             if state.client is not None:
                 logger.info("client already exists")
-                state.player.remain_connected = True
+                if state.player is not None:
+                    state.player.remain_connected = True
                 state.client.stop_playing()
-                player_state = state.player
             else:
                 await state.connect()
-                player_state = state.player
         else:
-            channels_info[channel.id] = state = ChannelState(channel)
-            channels_info[channel.id].player = player_state = PlayerChannelState()
-            await channels_info[channel.id].connect()
+            state = await self._state_manager.get_or_create(channel.id, channel)
+            state.player = PlayerChannelState()
+            await state.connect()
+
+        # ensure player state exists
+        if state.player is None:
+            state.player = PlayerChannelState()
 
         source = await get_source(url)
-        player_state.playing = url
+        state.player.playing = url
         await self._play(state, source)
 
     @commands.command(name="queue")
@@ -100,10 +102,8 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         logger.debug("queue called")
         logger.info("user %s requested to queue %s", ctx.author.name, url)
         channel = ctx.author.voice.channel
-        state: ChannelState | None = None
-        channels_info = get_channels()
-        state = channels_info[channel.id]
-        if state.player:
+        state = await self._state_manager.get(channel.id)
+        if state is not None and state.player is not None:
             logger.info("plutarch is already playing in channel, adding to queue")
             state.player.queue.append(url)
             state.player.remain_connected = True
@@ -115,21 +115,27 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
     async def stop(self, ctx: commands.Context):
         logger.debug("stop called")
         channel = ctx.author.voice.channel
-        channels_info = get_channels()
-        channel_state = channels_info[channel.id]
-        channel_state.player.remain_connected = False
-        if channel_state.client:
+        channel_state = await self._state_manager.get(channel.id)
+        if channel_state is None:
+            await ctx.send("Nothing is currently playing.")
+            return
+        if channel_state.player is not None:
+            channel_state.player.remain_connected = False
+        if channel_state.client is not None:
             channel_state.client.stop_playing()
 
     @commands.command(name="skip")
     async def skip(self, ctx: commands.Context):
-        logger.debug("skip called")
         """Skips the currently playing song and plays the next one in the queue."""
+        logger.debug("skip called")
         channel = ctx.author.voice.channel
-        channels_info = get_channels()
-        channel_state = channels_info[channel.id]
+        channel_state = await self._state_manager.get(channel.id)
 
-        if not channel_state.player or not channel_state.client:
+        if (
+            channel_state is None
+            or channel_state.player is None
+            or channel_state.client is None
+        ):
             await ctx.send("Nothing is currently playing.")
             return
 
@@ -152,28 +158,30 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
     # Connection actions
     async def _play(self, state: ChannelState, source):
         logger.debug("_play called")
+        if state.client is None:
+            return
         state.client.play(
             discord.FFmpegPCMAudio(source, executable=FFMPEG, **FFMPEG_OPTS),
             after=lambda e: print("done", e),
         )
-        while state.client.is_playing():
+        while state.client is not None and state.client.is_playing():
             await asyncio.sleep(1)
-        if not state.player.remain_connected:
-            await self._disconnect(state)
-        if not len(state.player.queue):
-            await self._disconnect(state)
-        else:
+        # check if there are more songs in the queue
+        if state.player is not None and len(state.player.queue) > 0:
             next_song = state.player.queue.pop(0)
             self.enqueued.append((state, next_song))
+        elif state.player is None or not state.player.remain_connected:
+            await self._disconnect(state)
 
     async def _disconnect(self, state: ChannelState):
         logger.debug("_disconnect called")
         logger.info("disconnecting audio player from server: %s", state.channel.name)
         if state.client is not None:
             await state.client.disconnect()
-            state.player.remain_connected = False
             state.client = None
-            self.queue = []
+        if state.player is not None:
+            state.player.remain_connected = False
+            state.player.queue = []
 
 
 # Media helper functions

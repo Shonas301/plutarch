@@ -1,4 +1,5 @@
 pip-tools
+pytest-asyncio
 ruff
 setuptools
 types-requests

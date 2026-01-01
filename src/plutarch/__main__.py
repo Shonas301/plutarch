@@ -8,7 +8,9 @@ import nest_asyncio
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from .commands import cogs
+from .commands.audio_player import AudioLinkPlayer
+from .commands.ready import ReadyConnection
+from .commands.voice_connections import ChannelStateManager
 
 logger = logging.getLogger()
 
@@ -17,7 +19,7 @@ nest_asyncio.apply()
 
 # setup logging
 def init_logging() -> logging.Handler:
-    logger.setLevel(os.getenv("logging_level", logging.INFO))
+    logger.setLevel(os.getenv("LOGGING_LEVEL", logging.INFO))
     logging.getLogger("discord").setLevel(logging.INFO)
 
     handler = logging.handlers.RotatingFileHandler(
@@ -50,9 +52,15 @@ def init_env():
 
 
 async def init_cogs(client: commands.Bot):
-    for cog in cogs:
-        logger.info("Initializing: %s", cog.__name__)
-        await client.add_cog(cog(client))
+    # create shared state manager for cogs that need it
+    state_manager = ChannelStateManager()
+
+    # initialize cogs with their dependencies
+    logger.info("Initializing: ReadyConnection")
+    await client.add_cog(ReadyConnection(client))
+
+    logger.info("Initializing: AudioLinkPlayer")
+    await client.add_cog(AudioLinkPlayer(client, state_manager))
 
 
 # entrypoint

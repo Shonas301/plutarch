@@ -18,13 +18,13 @@ pyproject-hooks==1.2.0
     # via
     #   build
     #   pip-tools
-pytest==8.4.0
+pytest==8.4.1
     # via -r requirements-dev.in
-ruff==0.11.13
+ruff==0.12.0
     # via -r requirements-dev.in
-types-requests==2.32.0.20250602
+types-requests==2.32.4.20250611
     # via -r requirements-dev.in
-urllib3==2.4.0
+urllib3==2.5.0
     # via types-requests
 wheel==0.45.1
     # via pip-tools

@@ -2,13 +2,8 @@ aiohttp
 discord-ext-voice-recv
 discord.py
 discord.py[voice]
-flask
-gunicorn
 nest_asyncio
 opuslib
 pynacl
 python-dotenv
-pytube
-pytz
-requests_oauthlib
 yt-dlp
