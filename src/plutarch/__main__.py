@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from .commands.audio_player import AudioLinkPlayer
 from .commands.ready import ReadyConnection
+from .commands.record_audio import RecordAudio
 from .commands.voice_connections import ChannelStateManager
 
 logger = logging.getLogger()
@@ -61,6 +62,9 @@ async def init_cogs(client: commands.Bot):
 
     logger.info("Initializing: AudioLinkPlayer")
     await client.add_cog(AudioLinkPlayer(client, state_manager))
+
+    logger.info("Initializing: RecordAudio")
+    await client.add_cog(RecordAudio(client, state_manager))
 
 
 # entrypoint
