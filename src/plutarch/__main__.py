@@ -8,6 +8,7 @@ import nest_asyncio
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from .arc.cog import ArcStash
 from .commands.audio_player import AudioLinkPlayer
 from .commands.ready import ReadyConnection
 from .commands.record_audio import RecordAudio
@@ -65,6 +66,9 @@ async def init_cogs(client: commands.Bot):
 
     logger.info("Initializing: RecordAudio")
     await client.add_cog(RecordAudio(client, state_manager))
+
+    logger.info("Initializing: ArcStash")
+    await client.add_cog(ArcStash(client))
 
 
 # entrypoint
