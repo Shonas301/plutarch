@@ -4,6 +4,7 @@ from plutarch.arc.engine import (
     analyze_optimize,
     analyze_recycle,
     analyze_sell,
+    build_deep_recycle_table,
 )
 from plutarch.arc.models import (
     Item,
@@ -112,6 +113,95 @@ def make_quest(
     )
 
 
+# -- tests for build_deep_recycle_table --
+
+
+class TestBuildDeepRecycleTable:
+    """tests for the recursive recycle value table builder."""
+
+    def test_base_material_has_zero_recycle_value(self):
+        """base materials (no recycles_into) should resolve to 0."""
+        items = {
+            "metal_parts": make_item("metal_parts", "Metal Parts", value=75),
+        }
+
+        table = build_deep_recycle_table(items)
+
+        assert table["metal_parts"] == 0
+
+    def test_single_depth_recycle(self):
+        """item recycling into base materials should sum their sell values."""
+        items = {
+            "item1": make_item("item1", "test item", value=100, recycles_into={"metal_parts": 3, "rubber_parts": 2}),
+            "metal_parts": make_item("metal_parts", "Metal Parts", value=75),
+            "rubber_parts": make_item("rubber_parts", "Rubber Parts", value=50),
+        }
+
+        table = build_deep_recycle_table(items)
+
+        # 3*75 + 2*50 = 225 + 100 = 325
+        assert table["item1"] == 325
+
+    def test_multi_depth_recycle(self):
+        """item recycling into intermediate materials should recurse."""
+        items = {
+            "weapon": make_item("weapon", "Weapon", value=5000, recycles_into={"mech_comp": 3}),
+            "mech_comp": make_item("mech_comp", "Mechanical Components", value=640, recycles_into={"metal_parts": 3, "rubber_parts": 2}),
+            "metal_parts": make_item("metal_parts", "Metal Parts", value=75),
+            "rubber_parts": make_item("rubber_parts", "Rubber Parts", value=50),
+        }
+
+        table = build_deep_recycle_table(items)
+
+        # mech_comp deep recycle: 225+100=325, sell=640 > 325 so parent uses 640
+        assert table["mech_comp"] == 325
+        assert table["weapon"] == 3 * 640
+
+    def test_uses_max_of_sell_vs_deep_recycle_at_each_level(self):
+        """at each level, should use whichever is higher: sell or recurse deeper."""
+        items = {
+            "top": make_item("top", "Top Item", value=100, recycles_into={"mid": 2}),
+            "mid": make_item("mid", "Mid Item", value=10, recycles_into={"base": 5}),
+            "base": make_item("base", "Base Material", value=50),
+        }
+
+        table = build_deep_recycle_table(items)
+
+        # base: 0 (no recycles_into)
+        # mid: 5 * max(50, 0) = 250 (deep recycle). mid.value=10, so max(10, 250)=250 at parent
+        # top: 2 * max(10, 250) = 500 (uses 250 because deep > sell)
+        assert table["base"] == 0
+        assert table["mid"] == 250
+        assert table["top"] == 500
+
+    def test_unknown_material_skipped(self):
+        """materials not in catalog should be skipped (contribute 0)."""
+        items = {
+            "item1": make_item("item1", "test", value=100, recycles_into={"unknown": 5, "metal_parts": 2}),
+            "metal_parts": make_item("metal_parts", "Metal Parts", value=75),
+        }
+
+        table = build_deep_recycle_table(items)
+
+        # unknown contributes 0, metal_parts contributes 2*75=150
+        assert table["item1"] == 150
+
+    def test_all_items_resolved(self):
+        """table should contain an entry for every item in the catalog."""
+        items = {
+            "a": make_item("a", "A", value=100, recycles_into={"b": 2}),
+            "b": make_item("b", "B", value=50, recycles_into={"c": 3}),
+            "c": make_item("c", "C", value=10),
+        }
+
+        table = build_deep_recycle_table(items)
+
+        assert len(table) == 3
+        assert "a" in table
+        assert "b" in table
+        assert "c" in table
+
+
 # -- tests for analyze_sell --
 
 
@@ -121,15 +211,14 @@ class TestAnalyzeSell:
     def test_item_with_sell_value_greater_than_recycle_value_appears(self):
         """should include item when selling is more profitable."""
         items = {
-            "item1": make_item("item1", "profitable sell", value=100),
+            "item1": make_item("item1", "profitable sell", value=100, recycles_into={"mat1": 3}),
             "mat1": make_item("mat1", "material", value=10),
         }
-        # recycling gives 3 * 10 = 30, selling gives 100
-        items["item1"].recycles_into = {"mat1": 3}
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("item1", quantity=1)]
 
-        result = analyze_sell(stash, items)
+        result = analyze_sell(stash, items, table)
 
         assert len(result) == 1
         assert result[0].item_id == "item1"
@@ -140,15 +229,14 @@ class TestAnalyzeSell:
     def test_item_with_sell_value_less_than_recycle_value_does_not_appear(self):
         """should exclude item when recycling is more profitable."""
         items = {
-            "item1": make_item("item1", "better recycle", value=10),
+            "item1": make_item("item1", "better recycle", value=10, recycles_into={"mat1": 3}),
             "mat1": make_item("mat1", "material", value=50),
         }
-        # recycling gives 3 * 50 = 150, selling gives 10
-        items["item1"].recycles_into = {"mat1": 3}
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("item1", quantity=1)]
 
-        result = analyze_sell(stash, items)
+        result = analyze_sell(stash, items, table)
 
         assert len(result) == 0
 
@@ -159,6 +247,7 @@ class TestAnalyzeSell:
             "item2": make_item("item2", "high value", value=200),
             "item3": make_item("item3", "mid value", value=100),
         }
+        table = build_deep_recycle_table(items)
 
         stash = [
             make_stash_item("item1", quantity=1),
@@ -166,7 +255,7 @@ class TestAnalyzeSell:
             make_stash_item("item3", quantity=1),
         ]
 
-        result = analyze_sell(stash, items)
+        result = analyze_sell(stash, items, table)
 
         assert len(result) == 3
         assert result[0].item_id == "item2"
@@ -182,13 +271,14 @@ class TestAnalyzeSell:
             "cosmetic": make_item("cosmetic", "trinket", value=0),
             "valuable": make_item("valuable", "material", value=100),
         }
+        table = build_deep_recycle_table(items)
 
         stash = [
             make_stash_item("cosmetic", quantity=1),
             make_stash_item("valuable", quantity=1),
         ]
 
-        result = analyze_sell(stash, items)
+        result = analyze_sell(stash, items, table)
 
         assert len(result) == 1
         assert result[0].item_id == "valuable"
@@ -198,13 +288,14 @@ class TestAnalyzeSell:
         items = {
             "item1": make_item("item1", "known item", value=100),
         }
+        table = build_deep_recycle_table(items)
 
         stash = [
             make_stash_item("item1", quantity=1),
             make_stash_item("unknown", quantity=1),
         ]
 
-        result = analyze_sell(stash, items)
+        result = analyze_sell(stash, items, table)
 
         assert len(result) == 1
         assert result[0].item_id == "item1"
@@ -219,15 +310,14 @@ class TestAnalyzeRecycle:
     def test_item_with_recycle_value_greater_than_sell_value_appears(self):
         """should include item when recycling is more profitable."""
         items = {
-            "item1": make_item("item1", "profitable recycle", value=10),
+            "item1": make_item("item1", "profitable recycle", value=10, recycles_into={"mat1": 3}),
             "mat1": make_item("mat1", "valuable material", value=50),
         }
-        # recycling gives 3 * 50 = 150, selling gives 10
-        items["item1"].recycles_into = {"mat1": 3}
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("item1", quantity=1)]
 
-        result = analyze_recycle(stash, items)
+        result = analyze_recycle(stash, items, table)
 
         assert len(result) == 1
         assert result[0].item_id == "item1"
@@ -238,15 +328,14 @@ class TestAnalyzeRecycle:
     def test_item_with_recycle_value_less_than_sell_value_does_not_appear(self):
         """should exclude item when selling is more profitable."""
         items = {
-            "item1": make_item("item1", "better sell", value=100),
+            "item1": make_item("item1", "better sell", value=100, recycles_into={"mat1": 3}),
             "mat1": make_item("mat1", "material", value=10),
         }
-        # recycling gives 3 * 10 = 30, selling gives 100
-        items["item1"].recycles_into = {"mat1": 3}
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("item1", quantity=1)]
 
-        result = analyze_recycle(stash, items)
+        result = analyze_recycle(stash, items, table)
 
         assert len(result) == 0
 
@@ -254,35 +343,30 @@ class TestAnalyzeRecycle:
         """should exclude items with no recycle data."""
         items = {
             "item1": make_item("item1", "no recycle", value=100),
-            "item2": make_item("item2", "has recycle", value=10),
+            "item2": make_item("item2", "has recycle", value=10, recycles_into={"mat1": 3}),
             "mat1": make_item("mat1", "material", value=50),
         }
-        items["item2"].recycles_into = {"mat1": 3}
+        table = build_deep_recycle_table(items)
 
         stash = [
             make_stash_item("item1", quantity=1),
             make_stash_item("item2", quantity=1),
         ]
 
-        result = analyze_recycle(stash, items)
+        result = analyze_recycle(stash, items, table)
 
         assert len(result) == 1
         assert result[0].item_id == "item2"
 
-    def test_items_sorted_by_margin_descending(self):
-        """should sort by recycle margin (biggest advantage first)."""
+    def test_items_sorted_by_margin_ascending(self):
+        """should sort by margin ascending (most negative = biggest recycle advantage)."""
         items = {
-            "item1": make_item("item1", "small margin", value=10),
-            "item2": make_item("item2", "large margin", value=5),
-            "item3": make_item("item3", "mid margin", value=20),
+            "item1": make_item("item1", "small margin", value=10, recycles_into={"mat1": 3}),
+            "item2": make_item("item2", "large margin", value=5, recycles_into={"mat1": 5}),
+            "item3": make_item("item3", "mid margin", value=20, recycles_into={"mat1": 2}),
             "mat1": make_item("mat1", "material", value=30),
         }
-        # item1: recycle=90, sell=10, margin=-80
-        items["item1"].recycles_into = {"mat1": 3}
-        # item2: recycle=150, sell=5, margin=-145 (biggest advantage)
-        items["item2"].recycles_into = {"mat1": 5}
-        # item3: recycle=60, sell=20, margin=-40
-        items["item3"].recycles_into = {"mat1": 2}
+        table = build_deep_recycle_table(items)
 
         stash = [
             make_stash_item("item1", quantity=1),
@@ -290,9 +374,9 @@ class TestAnalyzeRecycle:
             make_stash_item("item3", quantity=1),
         ]
 
-        result = analyze_recycle(stash, items)
+        result = analyze_recycle(stash, items, table)
 
-        # sorted by margin descending (most negative = biggest recycle advantage)
+        # sorted by margin ascending (most negative first)
         assert len(result) == 3
         assert result[0].item_id == "item2"
         assert result[0].margin == -145
@@ -313,6 +397,7 @@ class TestAnalyzeOptimize:
         items = {
             "quest_item": make_item("quest_item", "quest reward", value=100),
         }
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("quest_item", quantity=1)]
 
@@ -323,7 +408,7 @@ class TestAnalyzeOptimize:
             ),
         }
 
-        result = analyze_optimize(stash, items, quests)
+        result = analyze_optimize(stash, items, table, quests)
 
         assert len(result.hold) == 1
         assert result.hold[0].item_id == "quest_item"
@@ -332,17 +417,16 @@ class TestAnalyzeOptimize:
     def test_items_above_sell_threshold_go_to_sell_list(self):
         """should place high-value sell items in sell list."""
         items = {
-            "item1": make_item("item1", "valuable", value=100),
+            "item1": make_item("item1", "valuable", value=100, recycles_into={"mat1": 3}),
             "mat1": make_item("mat1", "material", value=10),
         }
-        # recycling gives 3 * 10 = 30, selling gives 100
-        items["item1"].recycles_into = {"mat1": 3}
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("item1", quantity=1)]
 
         quests = {}
 
-        result = analyze_optimize(stash, items, quests)
+        result = analyze_optimize(stash, items, table, quests)
 
         assert len(result.sell) == 1
         assert result.sell[0].item_id == "item1"
@@ -352,17 +436,16 @@ class TestAnalyzeOptimize:
     def test_items_above_recycle_threshold_go_to_recycle_list(self):
         """should place high-value recycle items in recycle list."""
         items = {
-            "item1": make_item("item1", "recyclable", value=10),
+            "item1": make_item("item1", "recyclable", value=10, recycles_into={"mat1": 3}),
             "mat1": make_item("mat1", "valuable material", value=50),
         }
-        # recycling gives 3 * 50 = 150, selling gives 10
-        items["item1"].recycles_into = {"mat1": 3}
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("item1", quantity=1)]
 
         quests = {}
 
-        result = analyze_optimize(stash, items, quests)
+        result = analyze_optimize(stash, items, table, quests)
 
         assert len(result.recycle) == 1
         assert result.recycle[0].item_id == "item1"
@@ -372,14 +455,11 @@ class TestAnalyzeOptimize:
     def test_min_profit_threshold_filters_low_margin_items(self):
         """should exclude items below profit threshold."""
         items = {
-            "item1": make_item("item1", "low margin", value=100),
-            "item2": make_item("item2", "high margin", value=200),
+            "item1": make_item("item1", "low margin", value=100, recycles_into={"mat1": 3}),
+            "item2": make_item("item2", "high margin", value=200, recycles_into={"mat1": 3}),
             "mat1": make_item("mat1", "material", value=30),
         }
-        # item1: sell=100, recycle=90, margin=10 (below threshold)
-        items["item1"].recycles_into = {"mat1": 3}
-        # item2: sell=200, recycle=90, margin=110 (above threshold)
-        items["item2"].recycles_into = {"mat1": 3}
+        table = build_deep_recycle_table(items)
 
         stash = [
             make_stash_item("item1", quantity=1),
@@ -389,7 +469,7 @@ class TestAnalyzeOptimize:
         quests = {}
         params = OptimizeParams(min_profit_threshold=50)
 
-        result = analyze_optimize(stash, items, quests, params)
+        result = analyze_optimize(stash, items, table, quests, params)
 
         assert len(result.sell) == 1
         assert result.sell[0].item_id == "item2"
@@ -399,6 +479,7 @@ class TestAnalyzeOptimize:
         items = {
             "quest_item": make_item("quest_item", "quest reward", value=100),
         }
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("quest_item", quantity=1)]
 
@@ -411,7 +492,7 @@ class TestAnalyzeOptimize:
 
         params = OptimizeParams(quest_aware=False)
 
-        result = analyze_optimize(stash, items, quests, params)
+        result = analyze_optimize(stash, items, table, quests, params)
 
         assert len(result.hold) == 0
         assert len(result.sell) == 1
@@ -422,11 +503,11 @@ class TestAnalyzeOptimize:
         items = {
             "sell1": make_item("sell1", "sell item 1", value=100),
             "sell2": make_item("sell2", "sell item 2", value=200),
-            "recycle1": make_item("recycle1", "recycle item", value=10),
+            "recycle1": make_item("recycle1", "recycle item", value=10, recycles_into={"mat1": 3}),
             "hold1": make_item("hold1", "hold item", value=50),
             "mat1": make_item("mat1", "material", value=50),
         }
-        items["recycle1"].recycles_into = {"mat1": 3}
+        table = build_deep_recycle_table(items)
 
         stash = [
             make_stash_item("sell1", quantity=1),
@@ -442,7 +523,7 @@ class TestAnalyzeOptimize:
             ),
         }
 
-        result = analyze_optimize(stash, items, quests)
+        result = analyze_optimize(stash, items, table, quests)
 
         assert result.total_sell_value == 300  # 100 + 200
         assert result.total_recycle_value == 150  # 3 * 50
@@ -453,6 +534,7 @@ class TestAnalyzeOptimize:
         items = {
             "copper_ore": make_item("copper_ore", "copper ore", value=100),
         }
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("copper_ore", quantity=5)]
 
@@ -463,7 +545,7 @@ class TestAnalyzeOptimize:
             ),
         }
 
-        result = analyze_optimize(stash, items, quests)
+        result = analyze_optimize(stash, items, table, quests)
 
         assert len(result.hold) == 1
         assert result.hold[0].item_id == "copper_ore"
@@ -473,6 +555,7 @@ class TestAnalyzeOptimize:
         items = {
             "starter_kit": make_item("starter_kit", "starter kit", value=100),
         }
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("starter_kit", quantity=1)]
 
@@ -483,7 +566,7 @@ class TestAnalyzeOptimize:
             ),
         }
 
-        result = analyze_optimize(stash, items, quests)
+        result = analyze_optimize(stash, items, table, quests)
 
         assert len(result.hold) == 1
         assert result.hold[0].item_id == "starter_kit"
@@ -498,10 +581,11 @@ class TestEdgeCases:
     def test_empty_stash_returns_empty_results(self):
         """should return empty lists for empty stash."""
         items = {"item1": make_item("item1", "test", value=100)}
+        table = build_deep_recycle_table(items)
         stash = []
         quests = {}
 
-        result = analyze_optimize(stash, items, quests)
+        result = analyze_optimize(stash, items, table, quests)
 
         assert len(result.sell) == 0
         assert len(result.recycle) == 0
@@ -515,28 +599,52 @@ class TestEdgeCases:
             "cosmetic1": make_item("cosmetic1", "hat", value=0),
             "cosmetic2": make_item("cosmetic2", "trinket", value=0),
         }
+        table = build_deep_recycle_table(items)
 
         stash = [
             make_stash_item("cosmetic1", quantity=1),
             make_stash_item("cosmetic2", quantity=1),
         ]
 
-        result = analyze_sell(stash, items)
+        result = analyze_sell(stash, items, table)
 
         assert len(result) == 0
 
     def test_material_not_found_in_items_dict_recycle_value_is_zero(self):
         """should handle missing materials in recycle calculation gracefully."""
         items = {
-            "item1": make_item("item1", "mystery item", value=100),
+            "item1": make_item("item1", "mystery item", value=100, recycles_into={"unknown_mat": 5}),
         }
-        # references material not in items dict
-        items["item1"].recycles_into = {"unknown_mat": 5}
+        table = build_deep_recycle_table(items)
 
         stash = [make_stash_item("item1", quantity=1)]
 
-        result = analyze_recycle(stash, items)
+        result = analyze_recycle(stash, items, table)
 
         # recycle value should be 0 because material doesn't exist
         # sell value is 100, so selling is better
         assert len(result) == 0
+
+    def test_deep_recycle_beats_shallow_for_intermediate_materials(self):
+        """deep recycle should correctly value items with multi-level chains."""
+        items = {
+            "weapon": make_item("weapon", "Big Gun", value=5000, recycles_into={"mech_comp": 5}),
+            "mech_comp": make_item("mech_comp", "Mechanical Components", value=640, recycles_into={"metal": 3, "rubber": 2}),
+            "metal": make_item("metal", "Metal Parts", value=75),
+            "rubber": make_item("rubber", "Rubber Parts", value=50),
+        }
+        table = build_deep_recycle_table(items)
+
+        # mech_comp deep recycle: 3*75 + 2*50 = 325
+        # but mech_comp sell = 640 > 325, so at weapon level we use 640 per mech_comp
+        # weapon deep recycle: 5 * 640 = 3200
+        assert table["weapon"] == 3200
+
+        stash = [make_stash_item("weapon", quantity=1)]
+
+        # weapon sell=5000 > deep_recycle=3200 → recommend sell
+        result = analyze_sell(stash, items, table)
+        assert len(result) == 1
+        assert result[0].item_id == "weapon"
+        assert result[0].sell_value == 5000
+        assert result[0].recycle_value == 3200

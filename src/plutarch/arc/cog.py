@@ -10,7 +10,12 @@ import discord
 from discord.ext import commands
 
 from plutarch.arc.client import ArcApiError, ArcClient
-from plutarch.arc.engine import analyze_optimize, analyze_recycle, analyze_sell
+from plutarch.arc.engine import (
+    analyze_optimize,
+    analyze_recycle,
+    analyze_sell,
+    build_deep_recycle_table,
+)
 from plutarch.arc.models import Item, OptimizeParams, Quest, Recommendation
 
 if TYPE_CHECKING:
@@ -44,16 +49,19 @@ class ArcStash(commands.Cog):
         )
         self._item_cache: dict[str, Item] | None = None
         self._quest_cache: dict[str, Quest] | None = None
+        self._recycle_table: dict[str, int] | None = None
 
     async def cog_unload(self) -> None:
         """Clean up aiohttp session when cog is unloaded."""
         await self._arc_client.close()
 
-    async def _ensure_caches(self) -> tuple[dict[str, Item], dict[str, Quest]]:
-        """Lazy-load item and quest caches on first command invocation.
+    async def _ensure_caches(
+        self,
+    ) -> tuple[dict[str, Item], dict[str, Quest], dict[str, int]]:
+        """Lazy-load item, quest, and recycle table caches.
 
         Returns:
-            tuple of (items dict, quests dict)
+            tuple of (items dict, quests dict, recycle table)
 
         Raises:
             ArcApiError: on api errors
@@ -61,12 +69,15 @@ class ArcStash(commands.Cog):
         if self._item_cache is None:
             logger.info("fetching item catalog from arctracker")
             self._item_cache = await self._arc_client.fetch_items()
+            # rebuild recycle table when items are refreshed
+            logger.info("building deep recycle value table")
+            self._recycle_table = build_deep_recycle_table(self._item_cache)
 
         if self._quest_cache is None:
             logger.info("fetching quest catalog from arctracker")
             self._quest_cache = await self._arc_client.fetch_quests()
 
-        return self._item_cache, self._quest_cache
+        return self._item_cache, self._quest_cache, self._recycle_table
 
     def _format_recommendation_line(self, rec: Recommendation) -> str:
         """Format a single recommendation as a text line.
@@ -180,11 +191,11 @@ class ArcStash(commands.Cog):
 
         try:
             # fetch data
-            items, _ = await self._ensure_caches()
+            items, _, recycle_table = await self._ensure_caches()
             stash = await self._arc_client.fetch_stash()
 
             # analyze
-            recommendations = analyze_sell(stash, items)
+            recommendations = analyze_sell(stash, items, recycle_table)
 
             # build and send embeds
             embeds = self._build_embeds("Items to Sell", recommendations, COLOR_SELL)
@@ -217,11 +228,11 @@ class ArcStash(commands.Cog):
 
         try:
             # fetch data
-            items, _ = await self._ensure_caches()
+            items, _, recycle_table = await self._ensure_caches()
             stash = await self._arc_client.fetch_stash()
 
             # analyze
-            recommendations = analyze_recycle(stash, items)
+            recommendations = analyze_recycle(stash, items, recycle_table)
 
             # build and send embeds
             embeds = self._build_embeds(
@@ -301,11 +312,11 @@ class ArcStash(commands.Cog):
 
         try:
             # fetch data
-            items, quests = await self._ensure_caches()
+            items, quests, recycle_table = await self._ensure_caches()
             stash = await self._arc_client.fetch_stash()
 
             # analyze
-            result = analyze_optimize(stash, items, quests, params)
+            result = analyze_optimize(stash, items, recycle_table, quests, params)
 
             # build embeds for each section
             all_embeds = []

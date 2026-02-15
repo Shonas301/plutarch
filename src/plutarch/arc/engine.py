@@ -16,27 +16,61 @@ from plutarch.arc.models import (
 )
 
 
-def _compute_recycle_value(item: Item, items: dict[str, Item]) -> int:
-    """Compute total value of materials obtained from recycling an item.
+def build_deep_recycle_table(items: dict[str, Item]) -> dict[str, int]:
+    """Resolve every item's recycle chain to base materials and cache the value.
+
+    recursively follows recycles_into until reaching base materials (items with
+    no recycles_into), then sums up the sell values of those base materials.
+    the result is the total credit value you'd get by recycling an item all the
+    way down and selling the final base materials.
+
+    uses memoization — each item is resolved exactly once.
 
     Args:
-        item: the item to recycle
-        items: full item catalog for material value lookup
+        items: full item catalog
 
     Returns:
-        total credit value of recycled materials
+        dict mapping item_id -> deep recycle value per single unit
     """
-    total = 0
-    for material_id, material_qty in item.recycles_into.items():
-        if material_id in items:
-            total += items[material_id].value * material_qty
-    return total
+    table: dict[str, int] = {}
+
+    def _resolve(item_id: str) -> int:
+        if item_id in table:
+            return table[item_id]
+
+        item = items.get(item_id)
+        if not item or not item.recycles_into:
+            # base material or unknown — can't recycle further, value is 0
+            # (the sell value is tracked separately via item.value)
+            table[item_id] = 0
+            return 0
+
+        # recurse: for each material we get from recycling, resolve its value.
+        # if a material is a base mat (no recycles_into), use its sell price.
+        # if it can be recycled further, use the deeper resolved value.
+        total = 0
+        for mat_id, mat_qty in item.recycles_into.items():
+            mat = items.get(mat_id)
+            if not mat:
+                continue
+            mat_deep = _resolve(mat_id)
+            # use whichever is higher: selling the material or recycling it further
+            mat_value = max(mat.value, mat_deep)
+            total += mat_value * mat_qty
+
+        table[item_id] = total
+        return total
+
+    for item_id in items:
+        _resolve(item_id)
+
+    return table
 
 
 def _build_recommendation(
     stash_item: StashItem,
     item: Item,
-    items: dict[str, Item],
+    recycle_table: dict[str, int],
     action: str,
 ) -> Recommendation:
     """Build a recommendation from a stash item and its catalog entry.
@@ -44,14 +78,14 @@ def _build_recommendation(
     Args:
         stash_item: item from user's stash
         item: item catalog entry
-        items: full item catalog for recycle value lookup
+        recycle_table: precomputed deep recycle values per item
         action: recommended action ("sell", "recycle", or "hold")
 
     Returns:
         recommendation with computed values
     """
     sell_value = item.value * stash_item.quantity
-    recycle_value = _compute_recycle_value(item, items) * stash_item.quantity
+    recycle_value = recycle_table.get(stash_item.item_id, 0) * stash_item.quantity
     margin = sell_value - recycle_value
 
     return Recommendation(
@@ -66,16 +100,20 @@ def _build_recommendation(
 
 
 def analyze_sell(
-    stash: list[StashItem], items: dict[str, Item]
+    stash: list[StashItem],
+    items: dict[str, Item],
+    recycle_table: dict[str, int],
 ) -> list[Recommendation]:
     """Analyze which items should be sold instead of recycled.
 
-    returns items where selling nets more credits than recycling, sorted by
-    total sell value descending. excludes items with zero value (cosmetics/trinkets).
+    returns items where selling nets more credits than the deep recycle value
+    (recursed to base materials), sorted by total sell value descending.
+    excludes items with zero value (cosmetics/trinkets).
 
     Args:
         stash: user's stash items
         items: full item catalog
+        recycle_table: precomputed deep recycle values per item
 
     Returns:
         list of sell recommendations, sorted by sell_value descending
@@ -93,12 +131,12 @@ def analyze_sell(
             continue
 
         sell_value = item.value * stash_item.quantity
-        recycle_value = _compute_recycle_value(item, items) * stash_item.quantity
+        recycle_value = recycle_table.get(stash_item.item_id, 0) * stash_item.quantity
 
         # only include if selling is better
         if sell_value > recycle_value:
             recommendations.append(
-                _build_recommendation(stash_item, item, items, "sell")
+                _build_recommendation(stash_item, item, recycle_table, "sell")
             )
 
     # sort by sell value descending (highest value items first)
@@ -107,20 +145,24 @@ def analyze_sell(
 
 
 def analyze_recycle(
-    stash: list[StashItem], items: dict[str, Item]
+    stash: list[StashItem],
+    items: dict[str, Item],
+    recycle_table: dict[str, int],
 ) -> list[Recommendation]:
     """Analyze which items should be recycled instead of sold.
 
-    returns items where recycling nets more value than selling, sorted by
-    recycle margin descending (biggest advantage first). excludes items with
-    no recycle data.
+    returns items where the deep recycle value (recursed to base materials) nets
+    more than selling directly, sorted by recycle margin descending (biggest
+    advantage first). excludes items with no recycle data.
 
     Args:
         stash: user's stash items
         items: full item catalog
+        recycle_table: precomputed deep recycle values per item
 
     Returns:
-        list of recycle recommendations, sorted by margin descending
+        list of recycle recommendations, sorted by margin ascending (most
+        negative margin = biggest recycle advantage)
     """
     recommendations = []
 
@@ -135,16 +177,16 @@ def analyze_recycle(
             continue
 
         sell_value = item.value * stash_item.quantity
-        recycle_value = _compute_recycle_value(item, items) * stash_item.quantity
+        recycle_value = recycle_table.get(stash_item.item_id, 0) * stash_item.quantity
 
         # only include if recycling is better
         if recycle_value > sell_value:
             recommendations.append(
-                _build_recommendation(stash_item, item, items, "recycle")
+                _build_recommendation(stash_item, item, recycle_table, "recycle")
             )
 
-    # sort by recycle margin descending (biggest advantage of recycling first)
-    recommendations.sort(key=lambda r: -r.margin, reverse=True)
+    # sort by margin ascending (most negative = biggest recycle advantage)
+    recommendations.sort(key=lambda r: r.margin)
     return recommendations
 
 
@@ -187,19 +229,21 @@ def _build_quest_hold_set(quests: dict[str, Quest], items: dict[str, Item]) -> s
 def analyze_optimize(
     stash: list[StashItem],
     items: dict[str, Item],
+    recycle_table: dict[str, int],
     quests: dict[str, Quest],
     params: OptimizeParams | None = None,
 ) -> OptimizeResult:
     """Greedy optimizer for entire stash.
 
     step 1: build hold set — items needed for incomplete quests
-    step 2: for remaining items, compute sell_value vs recycle_value
+    step 2: for remaining items, compare sell_value vs deep recycle_value
     step 3: greedy assignment — pick whichever action yields more credits
     step 4: return three lists (sell, recycle, hold) + summary totals
 
     Args:
         stash: user's stash items
         items: full item catalog
+        recycle_table: precomputed deep recycle values per item
         quests: quest catalog
         params: tunable parameters for the optimizer
 
@@ -229,13 +273,13 @@ def analyze_optimize(
 
         # check if item should be held
         if stash_item.item_id in hold_set:
-            rec = _build_recommendation(stash_item, item, items, "hold")
+            rec = _build_recommendation(stash_item, item, recycle_table, "hold")
             hold_recs.append(rec)
             continue
 
         # compute values
         sell_value = item.value * stash_item.quantity
-        recycle_value = _compute_recycle_value(item, items) * stash_item.quantity
+        recycle_value = recycle_table.get(stash_item.item_id, 0) * stash_item.quantity
         margin = abs(sell_value - recycle_value)
 
         # skip items below profit threshold
@@ -244,22 +288,22 @@ def analyze_optimize(
 
         # greedy decision: pick whichever yields more credits
         if sell_value > recycle_value:
-            rec = _build_recommendation(stash_item, item, items, "sell")
+            rec = _build_recommendation(stash_item, item, recycle_table, "sell")
             sell_recs.append(rec)
             total_sell_value += sell_value
         elif recycle_value > sell_value:
-            rec = _build_recommendation(stash_item, item, items, "recycle")
+            rec = _build_recommendation(stash_item, item, recycle_table, "recycle")
             recycle_recs.append(rec)
             total_recycle_value += recycle_value
         # if equal, default to sell (arbitrary tiebreaker)
         else:
-            rec = _build_recommendation(stash_item, item, items, "sell")
+            rec = _build_recommendation(stash_item, item, recycle_table, "sell")
             sell_recs.append(rec)
             total_sell_value += sell_value
 
     # sort results for better presentation
     sell_recs.sort(key=lambda r: r.sell_value, reverse=True)
-    recycle_recs.sort(key=lambda r: -r.margin, reverse=True)
+    recycle_recs.sort(key=lambda r: r.margin)
     hold_recs.sort(key=lambda r: r.name)
 
     return OptimizeResult(
