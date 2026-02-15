@@ -1,10 +1,22 @@
 """tests for arc discord table formatter."""
 
+import math
+
 from plutarch.arc.formatter import (
+    ANSI_BOLD_BLUE,
+    ANSI_GREEN,
+    ANSI_RED,
     MAX_ROWS_PER_EMBED,
     MAX_ROWS_WITH_FOOTER,
+    OPT_MAX_ROWS_PER_EMBED,
+    OPT_MAX_ROWS_WITH_FOOTER,
+    SELL_RCL_MAX_ROWS_PER_EMBED,
+    SELL_RCL_MAX_ROWS_WITH_FOOTER,
+    _margin_color,
     format_recommendations,
     format_recommendations_with_total,
+    format_recycle_recommendations,
+    format_sell_recommendations,
     format_table,
     format_table_for_embed,
 )
@@ -229,6 +241,97 @@ class TestFormatTable:
         assert "─" in lines[0]
 
 
+# -- tests for ansi color codes --
+
+
+class TestAnsiColors:
+    """tests for ansi escape code coloring in table output."""
+
+    def test_static_color_wraps_cell(self):
+        """static color spec should wrap the aligned cell content in ansi codes."""
+        headers = ["Name"]
+        rows = [["Test"]]
+
+        result = format_table(headers, rows, cell_colors=["1;34"])
+
+        # data row should contain ansi escape sequences
+        data_line = result.split("\n")[3]
+        assert "\x1b[1;34m" in data_line
+        assert "\x1b[0m" in data_line
+
+    def test_callable_color_receives_raw_value(self):
+        """callable color spec should receive the raw cell value."""
+        received_values = []
+
+        def capture_color(value: str) -> str | None:
+            received_values.append(value)
+            return "0;32"
+
+        headers = ["Val"]
+        rows = [["hello"]]
+        format_table(headers, rows, cell_colors=[capture_color])
+
+        assert "hello" in received_values
+
+    def test_callable_returning_none_skips_color(self):
+        """callable returning None should not add ansi codes."""
+        headers = ["Val"]
+        rows = [["test"]]
+
+        result = format_table(headers, rows, cell_colors=[lambda _v: None])
+
+        data_line = result.split("\n")[3]
+        assert "\x1b[" not in data_line
+
+    def test_none_color_spec_skips_column(self):
+        """None in cell_colors should leave that column uncolored."""
+        headers = ["A", "B"]
+        rows = [["x", "y"]]
+
+        result = format_table(headers, rows, cell_colors=[None, "0;31"])
+
+        data_line = result.split("\n")[3]
+        # only second column should have color
+        assert "\x1b[0;31m" in data_line
+        # split by pipe to check first column has no escape
+        parts = data_line.split("│")
+        assert "\x1b[" not in parts[1]  # first data cell (between pipes 0 and 1)
+
+    def test_headers_are_not_colored(self):
+        """header row should not contain ansi escape codes."""
+        headers = ["Name"]
+        rows = [["Test"]]
+
+        result = format_table(headers, rows, cell_colors=["1;34"])
+
+        header_line = result.split("\n")[1]
+        assert "\x1b[" not in header_line
+
+    def test_border_chars_not_colored(self):
+        """box-drawing border characters should not be inside ansi escape sequences."""
+        headers = ["X"]
+        rows = [["A"]]
+
+        result = format_table(headers, rows, cell_colors=["0;31"])
+
+        data_line = result.split("\n")[3]
+        # borders should be outside escape sequences
+        assert data_line.startswith("│")
+        assert data_line.endswith("│")
+
+    def test_margin_color_positive_returns_green(self):
+        """_margin_color should return green code for positive values."""
+        assert _margin_color("+1,440") == ANSI_GREEN
+
+    def test_margin_color_negative_returns_red(self):
+        """_margin_color should return red code for negative values."""
+        assert _margin_color("-600") == ANSI_RED
+
+    def test_margin_color_zero_returns_none(self):
+        """_margin_color should return None for zero value."""
+        assert _margin_color("0") is None
+
+
 # -- tests for format_table_for_embed --
 
 
@@ -244,6 +347,26 @@ class TestFormatTableForEmbed:
 
         assert result.startswith("```\n")
         assert result.endswith("\n```")
+
+    def test_ansi_code_block_when_colors_provided(self):
+        """output should use ```ansi when cell_colors are provided."""
+        headers = ["X"]
+        rows = [["1"]]
+
+        result = format_table_for_embed(headers, rows, cell_colors=["1;34"])
+
+        assert result.startswith("```ansi\n")
+        assert result.endswith("\n```")
+
+    def test_plain_code_block_when_no_colors(self):
+        """output should use plain ``` when no cell_colors are provided."""
+        headers = ["X"]
+        rows = [["1"]]
+
+        result = format_table_for_embed(headers, rows)
+
+        assert result.startswith("```\n")
+        assert "```ansi" not in result
 
     def test_footer_appended_outside_code_block(self):
         """footer text should appear after the closing code fence."""
@@ -303,7 +426,7 @@ class TestNumberFormatting:
         assert "0" in descs[0]
 
 
-# -- tests for format_recommendations --
+# -- tests for format_recommendations (optimize 5-column layout) --
 
 
 class TestFormatRecommendations:
@@ -347,21 +470,35 @@ class TestFormatRecommendations:
 
         assert "\u2026" in descs[0]
 
+    def test_output_uses_ansi_code_block(self):
+        """format_recommendations should produce ```ansi code blocks."""
+        rec = make_rec()
+        descs, _ = format_recommendations([rec])
+
+        assert descs[0].startswith("```ansi\n")
+
+    def test_output_contains_ansi_escape_codes(self):
+        """data rows should contain ansi escape sequences for coloring."""
+        rec = make_rec()
+        descs, _ = format_recommendations([rec])
+
+        assert "\x1b[" in descs[0]
+
     def test_single_embed_row_limit(self):
-        """single-embed mode should cap at MAX_ROWS_WITH_FOOTER rows and show footer."""
+        """single-embed mode should cap at OPT_MAX_ROWS_WITH_FOOTER rows."""
         recs = [make_rec(name=f"Item {i}", item_id=f"item_{i}") for i in range(100)]
         descs, truncated = format_recommendations(recs, show_all=False)
 
         assert len(descs) == 1
         assert truncated
-        expected_remaining = 100 - MAX_ROWS_WITH_FOOTER
+        expected_remaining = 100 - OPT_MAX_ROWS_WITH_FOOTER
         assert f"... and {expected_remaining} more items" in descs[0]
 
     def test_single_embed_exactly_max_rows_no_truncation(self):
-        """exactly MAX_ROWS_WITH_FOOTER items should fit without truncation."""
+        """exactly OPT_MAX_ROWS_WITH_FOOTER items should fit without truncation."""
         recs = [
             make_rec(name=f"Item {i}", item_id=f"item_{i}")
-            for i in range(MAX_ROWS_WITH_FOOTER)
+            for i in range(OPT_MAX_ROWS_WITH_FOOTER)
         ]
         descs, truncated = format_recommendations(recs, show_all=False)
 
@@ -369,10 +506,10 @@ class TestFormatRecommendations:
         assert not truncated
 
     def test_single_embed_one_over_max_triggers_truncation(self):
-        """MAX_ROWS_WITH_FOOTER + 1 items should trigger truncation."""
+        """OPT_MAX_ROWS_WITH_FOOTER + 1 items should trigger truncation."""
         recs = [
             make_rec(name=f"Item {i}", item_id=f"item_{i}")
-            for i in range(MAX_ROWS_WITH_FOOTER + 1)
+            for i in range(OPT_MAX_ROWS_WITH_FOOTER + 1)
         ]
         descs, truncated = format_recommendations(recs, show_all=False)
 
@@ -381,21 +518,19 @@ class TestFormatRecommendations:
         assert "... and 1 more item." in descs[0]
 
     def test_multi_embed_pagination(self):
-        """show_all mode should paginate at MAX_ROWS_PER_EMBED rows per embed."""
+        """show_all mode should paginate at OPT_MAX_ROWS_PER_EMBED rows per embed."""
         recs = [make_rec(name=f"Item {i}", item_id=f"item_{i}") for i in range(130)]
         descs, truncated = format_recommendations(recs, show_all=True)
 
-        import math
-
-        expected_pages = math.ceil(130 / MAX_ROWS_PER_EMBED)
+        expected_pages = math.ceil(130 / OPT_MAX_ROWS_PER_EMBED)
         assert len(descs) == expected_pages
         assert not truncated
 
     def test_multi_embed_exactly_max_rows(self):
-        """exactly MAX_ROWS_PER_EMBED items should produce 1 page."""
+        """exactly OPT_MAX_ROWS_PER_EMBED items should produce 1 page."""
         recs = [
             make_rec(name=f"Item {i}", item_id=f"item_{i}")
-            for i in range(MAX_ROWS_PER_EMBED)
+            for i in range(OPT_MAX_ROWS_PER_EMBED)
         ]
         descs, truncated = format_recommendations(recs, show_all=True)
 
@@ -403,10 +538,10 @@ class TestFormatRecommendations:
         assert not truncated
 
     def test_multi_embed_one_over_max_rows(self):
-        """MAX_ROWS_PER_EMBED + 1 items should produce 2 pages."""
+        """OPT_MAX_ROWS_PER_EMBED + 1 items should produce 2 pages."""
         recs = [
             make_rec(name=f"Item {i}", item_id=f"item_{i}")
-            for i in range(MAX_ROWS_PER_EMBED + 1)
+            for i in range(OPT_MAX_ROWS_PER_EMBED + 1)
         ]
         descs, truncated = format_recommendations(recs, show_all=True)
 
@@ -417,7 +552,7 @@ class TestFormatRecommendations:
         """truncation footer should use the provided command_hint."""
         recs = [
             make_rec(name=f"Item {i}", item_id=f"item_{i}")
-            for i in range(MAX_ROWS_WITH_FOOTER + 5)
+            for i in range(OPT_MAX_ROWS_WITH_FOOTER + 5)
         ]
         descs, truncated = format_recommendations(
             recs, show_all=False, command_hint="%arcsell all"
@@ -430,7 +565,7 @@ class TestFormatRecommendations:
         """truncation footer should reflect arcrecycle command_hint."""
         recs = [
             make_rec(name=f"Item {i}", item_id=f"item_{i}")
-            for i in range(MAX_ROWS_WITH_FOOTER + 5)
+            for i in range(OPT_MAX_ROWS_WITH_FOOTER + 5)
         ]
         descs, truncated = format_recommendations(
             recs, show_all=False, command_hint="%arcrecycle all"
@@ -443,7 +578,7 @@ class TestFormatRecommendations:
         """truncation footer should say 'item' (not 'items') when remaining == 1."""
         recs = [
             make_rec(name=f"Item {i}", item_id=f"item_{i}")
-            for i in range(MAX_ROWS_WITH_FOOTER + 1)
+            for i in range(OPT_MAX_ROWS_WITH_FOOTER + 1)
         ]
         descs, truncated = format_recommendations(recs, show_all=False)
 
@@ -455,12 +590,248 @@ class TestFormatRecommendations:
         """truncation footer should say 'items' when remaining > 1."""
         recs = [
             make_rec(name=f"Item {i}", item_id=f"item_{i}")
-            for i in range(MAX_ROWS_WITH_FOOTER + 3)
+            for i in range(OPT_MAX_ROWS_WITH_FOOTER + 3)
         ]
         descs, truncated = format_recommendations(recs, show_all=False)
 
         assert truncated
         assert "3 more items." in descs[0]
+
+
+# -- tests for format_sell_recommendations --
+
+
+class TestFormatSellRecommendations:
+    """tests for sell-specific 3-column formatter."""
+
+    def test_empty_recommendations(self):
+        """should return 'No items to display.' for empty list."""
+        descs, truncated = format_sell_recommendations([])
+
+        assert descs[0] == "No items to display."
+        assert not truncated
+
+    def test_has_sell_headers(self):
+        """sell layout should have Item, Sell, Margin headers only."""
+        rec = make_rec()
+        descs, _ = format_sell_recommendations([rec])
+
+        assert "Item" in descs[0]
+        assert "Sell" in descs[0]
+        assert "Margin" in descs[0]
+        # should not have Qty or Rcl columns
+        assert "Qty" not in descs[0]
+        assert "Rcl" not in descs[0]
+
+    def test_per_unit_sell_value(self):
+        """sell column should show per-unit value (sell_value // quantity)."""
+        rec = make_rec(sell_value=2400, quantity=8, recycle_value=800, margin=1600)
+        descs, _ = format_sell_recommendations([rec])
+
+        # per-unit sell = 2400 // 8 = 300
+        assert "300" in descs[0]
+
+    def test_per_unit_margin_value(self):
+        """margin column should show per-unit margin (margin // quantity)."""
+        rec = make_rec(sell_value=2400, quantity=8, recycle_value=800, margin=1600)
+        descs, _ = format_sell_recommendations([rec])
+
+        # per-unit margin = 1600 // 8 = 200
+        assert "+200" in descs[0]
+
+    def test_uses_ansi_code_block(self):
+        """sell output should use ```ansi code block."""
+        rec = make_rec()
+        descs, _ = format_sell_recommendations([rec])
+
+        assert descs[0].startswith("```ansi\n")
+
+    def test_contains_ansi_item_color(self):
+        """item name should be colored with bold blue."""
+        rec = make_rec()
+        descs, _ = format_sell_recommendations([rec])
+
+        assert f"\x1b[{ANSI_BOLD_BLUE}m" in descs[0]
+
+    def test_contains_ansi_sell_color(self):
+        """sell value should be colored with red."""
+        rec = make_rec()
+        descs, _ = format_sell_recommendations([rec])
+
+        assert f"\x1b[{ANSI_RED}m" in descs[0]
+
+    def test_positive_margin_colored_green(self):
+        """positive margin should be colored green."""
+        rec = make_rec(margin=500)
+        descs, _ = format_sell_recommendations([rec])
+
+        assert f"\x1b[{ANSI_GREEN}m" in descs[0]
+
+    def test_negative_margin_colored_red(self):
+        """negative margin should be colored red."""
+        rec = make_rec(margin=-500, sell_value=50, recycle_value=550)
+        descs, _ = format_sell_recommendations([rec])
+
+        # red appears for both sell value column and negative margin
+        assert f"\x1b[{ANSI_RED}m" in descs[0]
+
+    def test_zero_margin_not_colored(self):
+        """zero margin should not have ansi coloring."""
+        rec = make_rec(margin=0, sell_value=100, recycle_value=100)
+        descs, _ = format_sell_recommendations([rec])
+
+        # the "0" in the margin column should not be wrapped in green or red
+        # check that we can find a plain "0" cell (not preceded by ansi green/red)
+        # the zero margin means _margin_color returns None
+        output = descs[0]
+        # there should be no green escape in the output (only blue for item, red for sell)
+        assert f"\x1b[{ANSI_GREEN}m" not in output
+
+    def test_truncation_uses_sell_rcl_constants(self):
+        """sell layout should use SELL_RCL_MAX_ROWS_WITH_FOOTER for truncation."""
+        recs = [
+            make_rec(name=f"Item {i}", item_id=f"item_{i}")
+            for i in range(SELL_RCL_MAX_ROWS_WITH_FOOTER + 5)
+        ]
+        descs, truncated = format_sell_recommendations(recs, show_all=False)
+
+        assert truncated
+        expected_remaining = len(recs) - SELL_RCL_MAX_ROWS_WITH_FOOTER
+        assert f"... and {expected_remaining} more items" in descs[0]
+
+    def test_pagination_uses_sell_rcl_constants(self):
+        """sell layout show_all should paginate at SELL_RCL_MAX_ROWS_PER_EMBED."""
+        recs = [
+            make_rec(name=f"Item {i}", item_id=f"item_{i}")
+            for i in range(SELL_RCL_MAX_ROWS_PER_EMBED + 1)
+        ]
+        descs, truncated = format_sell_recommendations(recs, show_all=True)
+
+        assert len(descs) == 2
+        assert not truncated
+
+    def test_exactly_max_rows_no_truncation(self):
+        """exactly SELL_RCL_MAX_ROWS_WITH_FOOTER items should fit without truncation."""
+        recs = [
+            make_rec(name=f"Item {i}", item_id=f"item_{i}")
+            for i in range(SELL_RCL_MAX_ROWS_WITH_FOOTER)
+        ]
+        descs, truncated = format_sell_recommendations(recs, show_all=False)
+
+        assert len(descs) == 1
+        assert not truncated
+
+    def test_command_hint_in_footer(self):
+        """sell footer should use provided command_hint."""
+        recs = [
+            make_rec(name=f"Item {i}", item_id=f"item_{i}")
+            for i in range(SELL_RCL_MAX_ROWS_WITH_FOOTER + 5)
+        ]
+        descs, truncated = format_sell_recommendations(
+            recs, show_all=False, command_hint="%arcsell all"
+        )
+
+        assert truncated
+        assert "%arcsell all" in descs[0]
+
+
+# -- tests for format_recycle_recommendations --
+
+
+class TestFormatRecycleRecommendations:
+    """tests for recycle-specific 3-column formatter."""
+
+    def test_empty_recommendations(self):
+        """should return 'No items to display.' for empty list."""
+        descs, truncated = format_recycle_recommendations([])
+
+        assert descs[0] == "No items to display."
+        assert not truncated
+
+    def test_has_recycle_headers(self):
+        """recycle layout should have Item, Rcl, Margin headers only."""
+        rec = make_rec()
+        descs, _ = format_recycle_recommendations([rec])
+
+        assert "Item" in descs[0]
+        assert "Rcl" in descs[0]
+        assert "Margin" in descs[0]
+        # should not have Qty or Sell columns
+        assert "Qty" not in descs[0]
+        assert "Sell" not in descs[0]
+
+    def test_per_unit_recycle_value(self):
+        """rcl column should show per-unit value (recycle_value // quantity)."""
+        rec = make_rec(sell_value=800, quantity=8, recycle_value=2400, margin=-1600)
+        descs, _ = format_recycle_recommendations([rec])
+
+        # per-unit rcl = 2400 // 8 = 300
+        assert "300" in descs[0]
+
+    def test_per_unit_margin_value(self):
+        """margin column should show per-unit margin (margin // quantity)."""
+        rec = make_rec(sell_value=800, quantity=8, recycle_value=2400, margin=-1600)
+        descs, _ = format_recycle_recommendations([rec])
+
+        # per-unit margin = -1600 // 8 = -200
+        assert "-200" in descs[0]
+
+    def test_uses_ansi_code_block(self):
+        """recycle output should use ```ansi code block."""
+        rec = make_rec()
+        descs, _ = format_recycle_recommendations([rec])
+
+        assert descs[0].startswith("```ansi\n")
+
+    def test_negative_margin_colored_red(self):
+        """negative margin (recycling wins) should be colored red."""
+        rec = make_rec(margin=-500, sell_value=50, recycle_value=550)
+        descs, _ = format_recycle_recommendations([rec])
+
+        assert f"\x1b[{ANSI_RED}m" in descs[0]
+
+    def test_positive_margin_colored_green(self):
+        """positive margin (selling wins) should be colored green."""
+        rec = make_rec(margin=500, sell_value=550, recycle_value=50)
+        descs, _ = format_recycle_recommendations([rec])
+
+        assert f"\x1b[{ANSI_GREEN}m" in descs[0]
+
+    def test_truncation_uses_sell_rcl_constants(self):
+        """recycle layout should use SELL_RCL_MAX_ROWS_WITH_FOOTER for truncation."""
+        recs = [
+            make_rec(name=f"Item {i}", item_id=f"item_{i}")
+            for i in range(SELL_RCL_MAX_ROWS_WITH_FOOTER + 5)
+        ]
+        descs, truncated = format_recycle_recommendations(recs, show_all=False)
+
+        assert truncated
+        expected_remaining = len(recs) - SELL_RCL_MAX_ROWS_WITH_FOOTER
+        assert f"... and {expected_remaining} more items" in descs[0]
+
+    def test_pagination_uses_sell_rcl_constants(self):
+        """recycle layout show_all should paginate at SELL_RCL_MAX_ROWS_PER_EMBED."""
+        recs = [
+            make_rec(name=f"Item {i}", item_id=f"item_{i}")
+            for i in range(SELL_RCL_MAX_ROWS_PER_EMBED + 1)
+        ]
+        descs, truncated = format_recycle_recommendations(recs, show_all=True)
+
+        assert len(descs) == 2
+        assert not truncated
+
+    def test_command_hint_in_footer(self):
+        """recycle footer should use provided command_hint."""
+        recs = [
+            make_rec(name=f"Item {i}", item_id=f"item_{i}")
+            for i in range(SELL_RCL_MAX_ROWS_WITH_FOOTER + 5)
+        ]
+        descs, truncated = format_recycle_recommendations(
+            recs, show_all=False, command_hint="%arcrecycle all"
+        )
+
+        assert truncated
+        assert "%arcrecycle all" in descs[0]
 
 
 # -- tests for format_recommendations_with_total --
@@ -523,6 +894,20 @@ class TestFormatRecommendationsWithTotal:
         assert truncated
         assert "%arcoptimize all" in descs[0]
 
+    def test_uses_ansi_code_block(self):
+        """format_recommendations_with_total should produce ```ansi code blocks."""
+        rec = make_rec()
+        descs, _ = format_recommendations_with_total([rec])
+
+        assert descs[0].startswith("```ansi\n")
+
+    def test_contains_ansi_escape_codes(self):
+        """data rows should contain ansi escape sequences."""
+        rec = make_rec()
+        descs, _ = format_recommendations_with_total([rec])
+
+        assert "\x1b[" in descs[0]
+
 
 # -- tests for discord embed 4096 char limit --
 
@@ -551,9 +936,11 @@ class TestEmbedCharLimit:
             item_id=f"worst_{i}",
         )
 
-    def test_max_rows_with_footer_fits_in_4096(self):
-        """MAX_ROWS_WITH_FOOTER worst-case rows + footer must fit in 4096 chars."""
-        recs = [self._worst_case_rec(i) for i in range(MAX_ROWS_WITH_FOOTER + 5)]
+    # -- optimize layout (5 columns) --
+
+    def test_opt_max_rows_with_footer_fits_in_4096(self):
+        """OPT_MAX_ROWS_WITH_FOOTER worst-case rows + footer must fit in 4096 chars."""
+        recs = [self._worst_case_rec(i) for i in range(OPT_MAX_ROWS_WITH_FOOTER + 5)]
         descs, truncated = format_recommendations(
             recs, show_all=False, command_hint="%arcoptimize all"
         )
@@ -564,9 +951,9 @@ class TestEmbedCharLimit:
             f"embed description is {len(descs[0])} chars, exceeds 4096 limit"
         )
 
-    def test_max_rows_per_embed_fits_in_4096(self):
-        """MAX_ROWS_PER_EMBED worst-case rows (no footer) must fit in 4096 chars."""
-        recs = [self._worst_case_rec(i) for i in range(MAX_ROWS_PER_EMBED)]
+    def test_opt_max_rows_per_embed_fits_in_4096(self):
+        """OPT_MAX_ROWS_PER_EMBED worst-case rows (no footer) must fit in 4096 chars."""
+        recs = [self._worst_case_rec(i) for i in range(OPT_MAX_ROWS_PER_EMBED)]
         descs, truncated = format_recommendations(recs, show_all=True)
 
         assert not truncated
@@ -575,11 +962,9 @@ class TestEmbedCharLimit:
             f"embed description is {len(descs[0])} chars, exceeds 4096 limit"
         )
 
-    def test_max_rows_with_footer_plus_totals_fits_in_4096(self):
-        """MAX_ROWS_WITH_FOOTER worst-case rows + totals + footer must fit."""
-        # format_recommendations_with_total reserves one row for totals,
-        # so we need enough items to trigger truncation
-        recs = [self._worst_case_rec(i) for i in range(MAX_ROWS_WITH_FOOTER + 5)]
+    def test_opt_max_rows_with_footer_plus_totals_fits_in_4096(self):
+        """OPT_MAX_ROWS_WITH_FOOTER worst-case rows + totals + footer must fit."""
+        recs = [self._worst_case_rec(i) for i in range(OPT_MAX_ROWS_WITH_FOOTER + 5)]
         descs, truncated = format_recommendations_with_total(
             recs, show_all=False, command_hint="%arcoptimize all"
         )
@@ -590,7 +975,75 @@ class TestEmbedCharLimit:
             f"embed description is {len(descs[0])} chars, exceeds 4096 limit"
         )
 
-    def test_constants_are_correct(self):
-        """verify MAX_ROWS_WITH_FOOTER and MAX_ROWS_PER_EMBED values."""
+    # -- sell layout (3 columns) --
+
+    def test_sell_max_rows_with_footer_fits_in_4096(self):
+        """SELL_RCL_MAX_ROWS_WITH_FOOTER worst-case sell rows + footer must fit."""
+        recs = [
+            self._worst_case_rec(i) for i in range(SELL_RCL_MAX_ROWS_WITH_FOOTER + 5)
+        ]
+        descs, truncated = format_sell_recommendations(
+            recs, show_all=False, command_hint="%arcsell all"
+        )
+
+        assert truncated
+        assert len(descs) == 1
+        assert len(descs[0]) <= 4096, (
+            f"sell embed is {len(descs[0])} chars, exceeds 4096 limit"
+        )
+
+    def test_sell_max_rows_per_embed_fits_in_4096(self):
+        """SELL_RCL_MAX_ROWS_PER_EMBED worst-case sell rows (no footer) must fit."""
+        recs = [self._worst_case_rec(i) for i in range(SELL_RCL_MAX_ROWS_PER_EMBED)]
+        descs, truncated = format_sell_recommendations(recs, show_all=True)
+
+        assert not truncated
+        assert len(descs) == 1
+        assert len(descs[0]) <= 4096, (
+            f"sell embed is {len(descs[0])} chars, exceeds 4096 limit"
+        )
+
+    # -- recycle layout (3 columns) --
+
+    def test_recycle_max_rows_with_footer_fits_in_4096(self):
+        """SELL_RCL_MAX_ROWS_WITH_FOOTER worst-case recycle rows + footer must fit."""
+        recs = [
+            self._worst_case_rec(i) for i in range(SELL_RCL_MAX_ROWS_WITH_FOOTER + 5)
+        ]
+        descs, truncated = format_recycle_recommendations(
+            recs, show_all=False, command_hint="%arcrecycle all"
+        )
+
+        assert truncated
+        assert len(descs) == 1
+        assert len(descs[0]) <= 4096, (
+            f"recycle embed is {len(descs[0])} chars, exceeds 4096 limit"
+        )
+
+    def test_recycle_max_rows_per_embed_fits_in_4096(self):
+        """SELL_RCL_MAX_ROWS_PER_EMBED worst-case recycle rows (no footer) must fit."""
+        recs = [self._worst_case_rec(i) for i in range(SELL_RCL_MAX_ROWS_PER_EMBED)]
+        descs, truncated = format_recycle_recommendations(recs, show_all=True)
+
+        assert not truncated
+        assert len(descs) == 1
+        assert len(descs[0]) <= 4096, (
+            f"recycle embed is {len(descs[0])} chars, exceeds 4096 limit"
+        )
+
+    # -- constant values --
+
+    def test_legacy_constants_are_correct(self):
+        """verify legacy MAX_ROWS_WITH_FOOTER and MAX_ROWS_PER_EMBED values."""
         assert MAX_ROWS_WITH_FOOTER == 27
         assert MAX_ROWS_PER_EMBED == 28
+
+    def test_opt_constants_are_correct(self):
+        """verify OPT_MAX_ROWS_WITH_FOOTER and OPT_MAX_ROWS_PER_EMBED values."""
+        assert OPT_MAX_ROWS_WITH_FOOTER == 20
+        assert OPT_MAX_ROWS_PER_EMBED == 21
+
+    def test_sell_rcl_constants_are_correct(self):
+        """verify SELL_RCL_MAX_ROWS_WITH_FOOTER and SELL_RCL_MAX_ROWS_PER_EMBED values."""
+        assert SELL_RCL_MAX_ROWS_WITH_FOOTER == 29
+        assert SELL_RCL_MAX_ROWS_PER_EMBED == 30

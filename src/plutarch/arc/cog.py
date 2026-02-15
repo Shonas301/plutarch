@@ -17,8 +17,9 @@ from plutarch.arc.engine import (
     build_deep_recycle_table,
 )
 from plutarch.arc.formatter import (
-    format_recommendations,
     format_recommendations_with_total,
+    format_recycle_recommendations,
+    format_sell_recommendations,
 )
 from plutarch.arc.models import Item, OptimizeParams, Quest, Recommendation
 
@@ -138,8 +139,8 @@ class ArcStash(commands.Cog):
             # analyze
             recommendations = analyze_sell(stash, items, recycle_table)
 
-            # format into table embeds
-            descriptions, _ = format_recommendations(
+            # format into table embeds (3-column sell layout with per-unit values)
+            descriptions, _ = format_sell_recommendations(
                 recommendations, show_all=show_all, command_hint="%arcsell all"
             )
 
@@ -193,8 +194,8 @@ class ArcStash(commands.Cog):
             # analyze
             recommendations = analyze_recycle(stash, items, recycle_table)
 
-            # format into table embeds
-            descriptions, _ = format_recommendations(
+            # format into table embeds (3-column recycle layout with per-unit values)
+            descriptions, _ = format_recycle_recommendations(
                 recommendations, show_all=show_all, command_hint="%arcrecycle all"
             )
 
