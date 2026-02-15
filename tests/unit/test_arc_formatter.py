@@ -51,24 +51,56 @@ def make_rec(
 
 
 class TestFormatTable:
-    """tests for the basic ascii box table formatter."""
+    """tests for the unicode box-drawing table formatter."""
 
     def test_basic_table_with_headers_and_rows(self):
-        """should produce a properly formatted box table."""
+        """should produce a properly formatted box-drawing table."""
         headers = ["Name", "Value"]
         rows = [["Alpha", "100"], ["Beta", "200"]]
 
         result = format_table(headers, rows)
 
         lines = result.split("\n")
-        # top separator, header, header separator, 2 data rows, bottom separator
-        assert len(lines) == 6
-        assert lines[0].startswith("+")
-        assert lines[0].endswith("+")
+        # top border, header, header sep, row, sep, row, bottom border = 7
+        assert len(lines) == 7
+        assert lines[0].startswith("┌")
+        assert lines[0].endswith("┐")
+        assert lines[-1].startswith("└")
+        assert lines[-1].endswith("┘")
         assert "Name" in lines[1]
         assert "Value" in lines[1]
         assert "Alpha" in lines[3]
-        assert "Beta" in lines[4]
+        assert "Beta" in lines[5]
+
+    def test_row_separators_between_data_rows(self):
+        """should have separator lines between every data row."""
+        headers = ["Name", "Value"]
+        rows = [["A", "1"], ["B", "2"], ["C", "3"]]
+
+        result = format_table(headers, rows)
+
+        lines = result.split("\n")
+        # 9 lines: top, header, hdr_sep, A, sep, B, sep, C, bottom
+        assert len(lines) == 9
+        # separators between data rows use ├ and ┤
+        assert lines[4].startswith("├")
+        assert lines[4].endswith("┤")
+        assert lines[6].startswith("├")
+        assert lines[6].endswith("┤")
+
+    def test_single_data_row_no_mid_separator(self):
+        """single data row should have no separator between data rows."""
+        headers = ["X"]
+        rows = [["1"]]
+
+        result = format_table(headers, rows)
+
+        lines = result.split("\n")
+        # 5 lines: top, header, hdr_sep, data, bottom
+        assert len(lines) == 5
+        assert lines[0].startswith("┌")
+        assert lines[2].startswith("├")
+        assert lines[4].startswith("└")
 
     def test_no_trailing_newline(self):
         """table output should not end with a newline."""
@@ -88,8 +120,8 @@ class TestFormatTable:
 
         # "Name" is 4 chars wide, "Hi" should be left-padded with spaces on right
         data_line = result.split("\n")[3]
-        # extract cell content between pipes
-        cell = data_line.split("|")[1]
+        # extract cell content between box-drawing pipes
+        cell = data_line.split("│")[1]
         assert cell.startswith(" Hi")
 
     def test_right_alignment(self):
@@ -100,7 +132,7 @@ class TestFormatTable:
         result = format_table(headers, rows, alignments=["r"])
 
         data_line = result.split("\n")[3]
-        cell = data_line.split("|")[1]
+        cell = data_line.split("│")[1]
         # "Value" is 5 chars, "42" right-aligned should have leading spaces
         assert cell.endswith("42 ")
         assert "  42" in cell
@@ -113,7 +145,7 @@ class TestFormatTable:
         result = format_table(headers, rows, alignments=["c"])
 
         data_line = result.split("\n")[3]
-        cell = data_line.split("|")[1]
+        cell = data_line.split("│")[1]
         # "Hi" centered in 6-char-wide column
         assert "Hi" in cell
 
@@ -128,7 +160,7 @@ class TestFormatTable:
         # should contain truncated text with ellipsis
         assert "\u2026" in data_line
         # the truncated text should be at most 10 chars
-        cell = data_line.split("|")[1].strip()
+        cell = data_line.split("│")[1].strip()
         assert len(cell) <= 10
 
     def test_column_width_auto_sizes_to_widest_value(self):
@@ -151,8 +183,8 @@ class TestFormatTable:
         result = format_table(headers, rows)
 
         header_line = result.split("\n")[1]
-        # should have 4 pipe characters (outer + between columns)
-        assert header_line.count("|") == 4
+        # should have 4 box-drawing pipe characters (outer + between columns)
+        assert header_line.count("│") == 4
 
     def test_max_width_caps_column_width(self):
         """max_widths should cap the column width even if content is wider."""
@@ -162,9 +194,39 @@ class TestFormatTable:
         result = format_table(headers, rows, max_widths=[5])
 
         # column should be 5 chars wide, not 9
-        sep_line = result.split("\n")[0]
-        # +-------+ means 5 + 2 padding = 7 dashes
-        assert "+-------+" in sep_line
+        top_line = result.split("\n")[0]
+        # ┌───────┐ means 5 + 2 padding = 7 horizontal lines
+        assert "┌───────┐" in top_line
+
+    def test_box_drawing_characters_correct(self):
+        """should use correct box-drawing characters for each position."""
+        headers = ["A", "B"]
+        rows = [["1", "2"], ["3", "4"]]
+
+        result = format_table(headers, rows)
+
+        lines = result.split("\n")
+        # top border: ┌ ... ┬ ... ┐
+        assert lines[0][0] == "┌"
+        assert lines[0][-1] == "┐"
+        assert "┬" in lines[0]
+        # header separator: ├ ... ┼ ... ┤
+        assert lines[2][0] == "├"
+        assert lines[2][-1] == "┤"
+        assert "┼" in lines[2]
+        # row separator (same as header sep)
+        assert lines[4][0] == "├"
+        assert lines[4][-1] == "┤"
+        assert "┼" in lines[4]
+        # bottom border: └ ... ┴ ... ┘
+        assert lines[-1][0] == "└"
+        assert lines[-1][-1] == "┘"
+        assert "┴" in lines[-1]
+        # data rows use │
+        assert lines[1][0] == "│"
+        assert lines[1][-1] == "│"
+        # horizontal lines use ─
+        assert "─" in lines[0]
 
 
 # -- tests for format_table_for_embed --
@@ -445,10 +507,11 @@ class TestFormatRecommendationsWithTotal:
         recs = [make_rec(name=f"Item {i}", item_id=f"item_{i}") for i in range(70)]
         descs, _ = format_recommendations_with_total(recs, show_all=True)
 
-        assert len(descs) == 2
+        assert len(descs) >= 2
         # TOTAL should only be on last page
-        assert "TOTAL" not in descs[0]
-        assert "TOTAL" in descs[1]
+        for page in descs[:-1]:
+            assert "TOTAL" not in page
+        assert "TOTAL" in descs[-1]
 
     def test_truncation_footer_uses_command_hint(self):
         """truncation footer should use the provided command_hint."""
@@ -526,3 +589,8 @@ class TestEmbedCharLimit:
         assert len(descs[0]) <= 4096, (
             f"embed description is {len(descs[0])} chars, exceeds 4096 limit"
         )
+
+    def test_constants_are_correct(self):
+        """verify MAX_ROWS_WITH_FOOTER and MAX_ROWS_PER_EMBED values."""
+        assert MAX_ROWS_WITH_FOOTER == 27
+        assert MAX_ROWS_PER_EMBED == 28

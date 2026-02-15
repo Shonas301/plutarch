@@ -1,6 +1,6 @@
 """discord table formatter for arc raiders stash commands.
 
-produces ascii box tables inside discord code blocks (monospace).
+produces unicode box-drawing tables inside discord code blocks (monospace).
 designed to fit within discord embed description limits (4096 chars).
 """
 
@@ -24,28 +24,31 @@ COL_MARGIN_WIDTH = 9
 
 # pagination limits (derived from char budget math)
 # column content width: 20 + 5 + 9 + 9 + 9 = 52
-# pipes and padding: 6 pipes + 5*2 padding spaces = 16
+# box-drawing borders and padding: 6 │ + 5*2 padding spaces = 16
 # total line width: 52 + 16 = 68
 # per row with newline: 69 chars
 #
 # fixed chrome (no data rows):
-#   ```\n         = 4
-#   +---...+\n    = 69  (top separator)
-#   | hdr  |\n    = 69  (header row)
-#   +---...+\n    = 69  (header separator)
-#   +---...+\n    = 69  (bottom separator)
-#   ```           = 3
-#   chrome total:   283
+#   ```\n              = 4
+#   ┌───...┐\n         = 69  (top border)
+#   │ hdr  │\n         = 69  (header row)
+#   ├───...┤\n         = 69  (header separator)
+#   └───...┘\n         = 69  (bottom border)
+#   ```                = 3
+#   chrome total:        283
+#
+# row separators between every data row:
+#   for N data rows: N * 69 (data lines) + (N - 1) * 69 (separators) = (2N - 1) * 69
 #
 # footer (worst case with "%arcoptimize all"):
 #   \n + "... and 999 more items. use %arcoptimize all to see everything"
 #   = 1 + 63 = 64 chars
 #
 # embed description limit: 4096 chars
-# MAX_ROWS_PER_EMBED   = (4096 - 283) // 69 = 55
-# MAX_ROWS_WITH_FOOTER = (4096 - 283 - 64) // 69 = 54
-MAX_ROWS_WITH_FOOTER = 54
-MAX_ROWS_PER_EMBED = 55
+# with footer: 283 + 64 + (2N - 1) * 69 <= 4096 => N <= 27.66 => N = 27
+# without footer: 283 + (2N - 1) * 69 <= 4096 => N <= 28.13 => N = 28
+MAX_ROWS_WITH_FOOTER = 27
+MAX_ROWS_PER_EMBED = 28
 
 
 def _truncate(text: str, max_width: int) -> str:
@@ -167,7 +170,7 @@ def _build_row_line(
     col_widths: list[int],
     alignments: list[str],
 ) -> str:
-    """Build a single pipe-delimited row line.
+    """Build a single box-drawing row line.
 
     Args:
         cells: cell values for this row
@@ -175,13 +178,33 @@ def _build_row_line(
         alignments: per-column alignment
 
     Returns:
-        formatted row string like "| val1 | val2 |"
+        formatted row string like "│ val1 │ val2 │"
     """
     parts = []
     for i, width in enumerate(col_widths):
         val = cells[i] if i < len(cells) else ""
         parts.append(" " + _align_cell(val, width, alignments[i]) + " ")
-    return "|" + "|".join(parts) + "|"
+    return "│" + "│".join(parts) + "│"
+
+
+def _build_separator(
+    col_widths: list[int],
+    left: str,
+    mid: str,
+    right: str,
+) -> str:
+    """Build a horizontal separator line with box-drawing characters.
+
+    Args:
+        col_widths: column widths
+        left: left corner/tee character
+        mid: middle crossing character
+        right: right corner/tee character
+
+    Returns:
+        separator string like "┌──────┬──────┐"
+    """
+    return left + mid.join("─" * (w + 2) for w in col_widths) + right
 
 
 def format_table(
@@ -190,7 +213,7 @@ def format_table(
     alignments: list[str] | None = None,
     max_widths: list[int] | None = None,
 ) -> str:
-    """Build an ascii box table string.
+    """Build a unicode box-drawing table string.
 
     Args:
         headers: column header labels
@@ -215,15 +238,22 @@ def format_table(
     # compute column widths
     col_widths = _compute_col_widths(proc_headers, proc_rows, mw)
 
-    # build separator line: +------+------+
-    sep = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
+    # build border/separator lines with box-drawing characters
+    top_border = _build_separator(col_widths, "┌", "┬", "┐")
+    mid_sep = _build_separator(col_widths, "├", "┼", "┤")
+    bottom_border = _build_separator(col_widths, "└", "┴", "┘")
 
     # build header and data rows
     header_line = _build_row_line(proc_headers, col_widths, alignments)
     data_lines = [_build_row_line(row, col_widths, alignments) for row in proc_rows]
 
-    # assemble: top sep, header, header sep, data rows, bottom sep
-    parts = [sep, header_line, sep, *data_lines, sep]
+    # assemble: top border, header, header sep, data rows with separators, bottom
+    parts = [top_border, header_line, mid_sep]
+    for i, line in enumerate(data_lines):
+        parts.append(line)
+        if i < len(data_lines) - 1:
+            parts.append(mid_sep)
+    parts.append(bottom_border)
     return "\n".join(parts)
 
 
