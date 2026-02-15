@@ -16,6 +16,10 @@ from plutarch.arc.engine import (
     analyze_sell,
     build_deep_recycle_table,
 )
+from plutarch.arc.formatter import (
+    format_recommendations,
+    format_recommendations_with_total,
+)
 from plutarch.arc.models import Item, OptimizeParams, Quest, Recommendation
 
 if TYPE_CHECKING:
@@ -29,8 +33,39 @@ COLOR_RECYCLE = 0x3498DB  # blue
 COLOR_HOLD = 0xF39C12  # yellow
 COLOR_ERROR = 0xE74C3C  # red
 
-# discord embed limits
-MAX_EMBED_DESC_LENGTH = 4000
+
+def _build_section_embeds(
+    title: str,
+    recommendations: Sequence[Recommendation],
+    color: int,
+    *,
+    show_all: bool,
+    command_hint: str = "%arcoptimize all",
+) -> list[discord.Embed]:
+    """Build embeds for an optimize section (sell/recycle/hold).
+
+    Args:
+        title: section title (e.g. "SELL")
+        recommendations: recommendations for this section
+        color: embed sidebar color
+        show_all: whether to paginate across multiple embeds
+        command_hint: command shown in truncation footer
+
+    Returns:
+        list of discord.Embed objects
+    """
+    descs, _ = format_recommendations_with_total(
+        recommendations, show_all=show_all, command_hint=command_hint
+    )
+    total_pages = len(descs)
+    embeds = []
+    for i, desc in enumerate(descs):
+        if show_all and total_pages > 1:
+            page_title = f"{title} ({i + 1}/{total_pages})"
+        else:
+            page_title = title
+        embeds.append(discord.Embed(title=page_title, description=desc, color=color))
+    return embeds
 
 
 class ArcStash(commands.Cog):
@@ -79,115 +114,21 @@ class ArcStash(commands.Cog):
 
         return self._item_cache, self._quest_cache, self._recycle_table
 
-    def _format_recommendation_line(self, rec: Recommendation) -> str:
-        """Format a single recommendation as a text line.
-
-        Args:
-            rec: recommendation to format
-
-        Returns:
-            formatted line with name, qty, sell, recycle, margin
-        """
-        return (
-            f"{rec.name} x{rec.quantity} — "
-            f"sell: {rec.sell_value}cr, recycle: {rec.recycle_value}cr "
-            f"(margin: {rec.margin:+d}cr)"
-        )
-
-    def _build_embeds(
-        self,
-        title: str,
-        recommendations: Sequence[Recommendation],
-        color: int,
-    ) -> list[discord.Embed]:
-        """Build one or more embeds from recommendations, paginating if needed.
-
-        Args:
-            title: embed title
-            recommendations: list of recommendations to include
-            color: embed color
-
-        Returns:
-            list of embeds (multiple if content exceeds char limit)
-        """
-        if not recommendations:
-            embed = discord.Embed(
-                title=title,
-                description="No items to display.",
-                color=color,
-            )
-            return [embed]
-
-        embeds = []
-        current_lines = []
-        current_length = 0
-
-        for rec in recommendations:
-            line = self._format_recommendation_line(rec)
-            line_length = len(line) + 1  # +1 for newline
-
-            # check if adding this line would exceed the limit
-            if current_length + line_length > MAX_EMBED_DESC_LENGTH:
-                # flush current embed
-                total_value = sum(
-                    r.sell_value if r.action == "sell" else r.recycle_value
-                    for r in recommendations[: len(current_lines)]
-                )
-                summary = f"\n\n**Total:** {total_value} credits from {len(current_lines)} items"
-                description = "\n".join(current_lines) + summary
-
-                embed_title = title if not embeds else f"{title} (continued)"
-                embeds.append(
-                    discord.Embed(
-                        title=embed_title,
-                        description=description,
-                        color=color,
-                    )
-                )
-
-                # start new embed
-                current_lines = [line]
-                current_length = line_length
-            else:
-                current_lines.append(line)
-                current_length += line_length
-
-        # flush remaining lines
-        if current_lines:
-            # compute total for this chunk
-            start_idx = sum(len(e.description.split("\n")) - 2 for e in embeds)
-            chunk_recs = recommendations[start_idx : start_idx + len(current_lines)]
-            total_value = sum(
-                r.sell_value if r.action == "sell" else r.recycle_value
-                for r in chunk_recs
-            )
-            summary = (
-                f"\n\n**Total:** {total_value} credits from {len(current_lines)} items"
-            )
-            description = "\n".join(current_lines) + summary
-
-            embed_title = title if not embeds else f"{title} (continued)"
-            embeds.append(
-                discord.Embed(
-                    title=embed_title,
-                    description=description,
-                    color=color,
-                )
-            )
-
-        return embeds
-
     @commands.command(name="arcsell")
-    async def arcsell(self, ctx: commands.Context) -> None:
+    async def arcsell(self, ctx: commands.Context, *args: str) -> None:
         """Show which stash items should be sold instead of recycled.
 
         Args:
             ctx: discord command context
+            args: command arguments ("all" for full listing)
         """
         # check for api keys
         if not os.getenv("ARC_API_KEY") or not os.getenv("ARC_USER_KEY"):
             await ctx.send("Arc API keys not configured.")
             return
+
+        # parse "all" flag
+        show_all = len(args) > 0 and args[0].lower() == "all"
 
         try:
             # fetch data
@@ -197,9 +138,23 @@ class ArcStash(commands.Cog):
             # analyze
             recommendations = analyze_sell(stash, items, recycle_table)
 
+            # format into table embeds
+            descriptions, _ = format_recommendations(
+                recommendations, show_all=show_all, command_hint="%arcsell all"
+            )
+
             # build and send embeds
-            embeds = self._build_embeds("Items to Sell", recommendations, COLOR_SELL)
-            for embed in embeds:
+            total_pages = len(descriptions)
+            for i, desc in enumerate(descriptions):
+                if show_all and total_pages > 1:
+                    title = f"\U0001f4b0 Items to Sell ({i + 1}/{total_pages})"
+                else:
+                    title = "\U0001f4b0 Items to Sell"
+                embed = discord.Embed(
+                    title=title,
+                    description=desc,
+                    color=COLOR_SELL,
+                )
                 await ctx.send(embed=embed)
 
         except ArcApiError as e:
@@ -215,16 +170,20 @@ class ArcStash(commands.Cog):
             await ctx.send("Something went wrong while analyzing your stash.")
 
     @commands.command(name="arcrecycle")
-    async def arcrecycle(self, ctx: commands.Context) -> None:
+    async def arcrecycle(self, ctx: commands.Context, *args: str) -> None:
         """Show which stash items should be recycled instead of sold.
 
         Args:
             ctx: discord command context
+            args: command arguments ("all" for full listing)
         """
         # check for api keys
         if not os.getenv("ARC_API_KEY") or not os.getenv("ARC_USER_KEY"):
             await ctx.send("Arc API keys not configured.")
             return
+
+        # parse "all" flag
+        show_all = len(args) > 0 and args[0].lower() == "all"
 
         try:
             # fetch data
@@ -234,11 +193,23 @@ class ArcStash(commands.Cog):
             # analyze
             recommendations = analyze_recycle(stash, items, recycle_table)
 
-            # build and send embeds
-            embeds = self._build_embeds(
-                "Items to Recycle", recommendations, COLOR_RECYCLE
+            # format into table embeds
+            descriptions, _ = format_recommendations(
+                recommendations, show_all=show_all, command_hint="%arcrecycle all"
             )
-            for embed in embeds:
+
+            # build and send embeds
+            total_pages = len(descriptions)
+            for i, desc in enumerate(descriptions):
+                if show_all and total_pages > 1:
+                    title = f"\u267b Items to Recycle ({i + 1}/{total_pages})"
+                else:
+                    title = "\u267b Items to Recycle"
+                embed = discord.Embed(
+                    title=title,
+                    description=desc,
+                    color=COLOR_RECYCLE,
+                )
                 await ctx.send(embed=embed)
 
         except ArcApiError as e:
@@ -290,6 +261,7 @@ class ArcStash(commands.Cog):
         """Greedy optimizer showing sell/recycle/hold recommendations.
 
         Flags:
+            all: show all items across multiple embeds
             --no-quests: disable quest-aware holdback
             --min-profit N: minimum profit threshold in credits
             --hideout: hold back items needed for hideout upgrades
@@ -297,64 +269,25 @@ class ArcStash(commands.Cog):
 
         Args:
             ctx: discord command context
-            args: command arguments (flags)
+            args: command arguments ("all" flag first, then other flags)
         """
         # check for api keys
         if not os.getenv("ARC_API_KEY") or not os.getenv("ARC_USER_KEY"):
             await ctx.send("Arc API keys not configured.")
             return
 
+        # parse "all" flag from the front of args
+        show_all = len(args) > 0 and args[0].lower() == "all"
+        remaining_args = args[1:] if show_all else args
+
         # parse flags
-        params = self._parse_optimize_flags(args)
+        params = self._parse_optimize_flags(remaining_args)
         if params is None:
             await ctx.send("Invalid command flags. Use --min-profit <number>")
             return
 
         try:
-            # fetch data
-            items, quests, recycle_table = await self._ensure_caches()
-            stash = await self._arc_client.fetch_stash()
-
-            # analyze
-            result = analyze_optimize(stash, items, recycle_table, quests, params)
-
-            # build embeds for each section
-            all_embeds = []
-
-            # sell section (green)
-            if result.sell:
-                sell_embeds = self._build_embeds("SELL", result.sell, COLOR_SELL)
-                all_embeds.extend(sell_embeds)
-
-            # recycle section (blue)
-            if result.recycle:
-                recycle_embeds = self._build_embeds(
-                    "RECYCLE", result.recycle, COLOR_RECYCLE
-                )
-                all_embeds.extend(recycle_embeds)
-
-            # hold section (yellow)
-            if result.hold:
-                hold_embeds = self._build_embeds("HOLD", result.hold, COLOR_HOLD)
-                all_embeds.extend(hold_embeds)
-
-            # summary embed
-            summary_text = (
-                f"**Sell:** {result.total_sell_value} credits from {len(result.sell)} items\n"
-                f"**Recycle:** {result.total_recycle_value} credits from {len(result.recycle)} items\n"
-                f"**Hold:** {result.total_hold_count} items (quest-aware: {params.quest_aware})"
-            )
-            summary_embed = discord.Embed(
-                title="Optimization Summary",
-                description=summary_text,
-                color=0x95A5A6,  # gray
-            )
-            all_embeds.append(summary_embed)
-
-            # send all embeds
-            for embed in all_embeds:
-                await ctx.send(embed=embed)
-
+            await self._run_optimize(ctx, params, show_all=show_all)
         except ArcApiError as e:
             logger.exception("arctracker api error in arcoptimize")
             embed = discord.Embed(
@@ -366,3 +299,81 @@ class ArcStash(commands.Cog):
         except Exception:
             logger.exception("unexpected error in arcoptimize")
             await ctx.send("Something went wrong while optimizing your stash.")
+
+    async def _run_optimize(
+        self,
+        ctx: commands.Context,
+        params: OptimizeParams,
+        *,
+        show_all: bool,
+    ) -> None:
+        """Execute the optimize analysis and send result embeds.
+
+        Args:
+            ctx: discord command context
+            params: optimizer parameters
+            show_all: whether to paginate across multiple embeds
+        """
+        # fetch data
+        items, quests, recycle_table = await self._ensure_caches()
+        stash = await self._arc_client.fetch_stash()
+
+        # analyze
+        result = analyze_optimize(stash, items, recycle_table, quests, params)
+
+        # build section embeds
+        all_embeds: list[discord.Embed] = []
+
+        if result.sell:
+            all_embeds.extend(
+                _build_section_embeds(
+                    "\U0001f4b0 SELL",
+                    result.sell,
+                    COLOR_SELL,
+                    show_all=show_all,
+                    command_hint="%arcoptimize all",
+                )
+            )
+
+        if result.recycle:
+            all_embeds.extend(
+                _build_section_embeds(
+                    "\u267b RECYCLE",
+                    result.recycle,
+                    COLOR_RECYCLE,
+                    show_all=show_all,
+                    command_hint="%arcoptimize all",
+                )
+            )
+
+        if result.hold:
+            all_embeds.extend(
+                _build_section_embeds(
+                    "\U0001f4e6 HOLD",
+                    result.hold,
+                    COLOR_HOLD,
+                    show_all=show_all,
+                    command_hint="%arcoptimize all",
+                )
+            )
+
+        # summary embed
+        summary_text = (
+            f"**Sell:** {result.total_sell_value:,} credits"
+            f" from {len(result.sell)} items\n"
+            f"**Recycle:** {result.total_recycle_value:,} credits"
+            f" from {len(result.recycle)} items\n"
+            f"**Hold:** {result.total_hold_count} items"
+            f" (quest-aware: {params.quest_aware})"
+        )
+        all_embeds.append(
+            discord.Embed(
+                title="Optimization Summary",
+                description=summary_text,
+                color=0x95A5A6,
+            )
+        )
+
+        # send all embeds
+        for embed in all_embeds:
+            await ctx.send(embed=embed)

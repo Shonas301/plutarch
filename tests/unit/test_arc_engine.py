@@ -132,7 +132,12 @@ class TestBuildDeepRecycleTable:
     def test_single_depth_recycle(self):
         """item recycling into base materials should sum their sell values."""
         items = {
-            "item1": make_item("item1", "test item", value=100, recycles_into={"metal_parts": 3, "rubber_parts": 2}),
+            "item1": make_item(
+                "item1",
+                "test item",
+                value=100,
+                recycles_into={"metal_parts": 3, "rubber_parts": 2},
+            ),
             "metal_parts": make_item("metal_parts", "Metal Parts", value=75),
             "rubber_parts": make_item("rubber_parts", "Rubber Parts", value=50),
         }
@@ -145,8 +150,15 @@ class TestBuildDeepRecycleTable:
     def test_multi_depth_recycle(self):
         """item recycling into intermediate materials should recurse."""
         items = {
-            "weapon": make_item("weapon", "Weapon", value=5000, recycles_into={"mech_comp": 3}),
-            "mech_comp": make_item("mech_comp", "Mechanical Components", value=640, recycles_into={"metal_parts": 3, "rubber_parts": 2}),
+            "weapon": make_item(
+                "weapon", "Weapon", value=5000, recycles_into={"mech_comp": 3}
+            ),
+            "mech_comp": make_item(
+                "mech_comp",
+                "Mechanical Components",
+                value=640,
+                recycles_into={"metal_parts": 3, "rubber_parts": 2},
+            ),
             "metal_parts": make_item("metal_parts", "Metal Parts", value=75),
             "rubber_parts": make_item("rubber_parts", "Rubber Parts", value=50),
         }
@@ -177,7 +189,12 @@ class TestBuildDeepRecycleTable:
     def test_unknown_material_skipped(self):
         """materials not in catalog should be skipped (contribute 0)."""
         items = {
-            "item1": make_item("item1", "test", value=100, recycles_into={"unknown": 5, "metal_parts": 2}),
+            "item1": make_item(
+                "item1",
+                "test",
+                value=100,
+                recycles_into={"unknown": 5, "metal_parts": 2},
+            ),
             "metal_parts": make_item("metal_parts", "Metal Parts", value=75),
         }
 
@@ -211,7 +228,9 @@ class TestAnalyzeSell:
     def test_item_with_sell_value_greater_than_recycle_value_appears(self):
         """should include item when selling is more profitable."""
         items = {
-            "item1": make_item("item1", "profitable sell", value=100, recycles_into={"mat1": 3}),
+            "item1": make_item(
+                "item1", "profitable sell", value=100, recycles_into={"mat1": 3}
+            ),
             "mat1": make_item("mat1", "material", value=10),
         }
         table = build_deep_recycle_table(items)
@@ -229,7 +248,9 @@ class TestAnalyzeSell:
     def test_item_with_sell_value_less_than_recycle_value_does_not_appear(self):
         """should exclude item when recycling is more profitable."""
         items = {
-            "item1": make_item("item1", "better recycle", value=10, recycles_into={"mat1": 3}),
+            "item1": make_item(
+                "item1", "better recycle", value=10, recycles_into={"mat1": 3}
+            ),
             "mat1": make_item("mat1", "material", value=50),
         }
         table = build_deep_recycle_table(items)
@@ -310,7 +331,9 @@ class TestAnalyzeRecycle:
     def test_item_with_recycle_value_greater_than_sell_value_appears(self):
         """should include item when recycling is more profitable."""
         items = {
-            "item1": make_item("item1", "profitable recycle", value=10, recycles_into={"mat1": 3}),
+            "item1": make_item(
+                "item1", "profitable recycle", value=10, recycles_into={"mat1": 3}
+            ),
             "mat1": make_item("mat1", "valuable material", value=50),
         }
         table = build_deep_recycle_table(items)
@@ -328,7 +351,9 @@ class TestAnalyzeRecycle:
     def test_item_with_recycle_value_less_than_sell_value_does_not_appear(self):
         """should exclude item when selling is more profitable."""
         items = {
-            "item1": make_item("item1", "better sell", value=100, recycles_into={"mat1": 3}),
+            "item1": make_item(
+                "item1", "better sell", value=100, recycles_into={"mat1": 3}
+            ),
             "mat1": make_item("mat1", "material", value=10),
         }
         table = build_deep_recycle_table(items)
@@ -343,7 +368,9 @@ class TestAnalyzeRecycle:
         """should exclude items with no recycle data."""
         items = {
             "item1": make_item("item1", "no recycle", value=100),
-            "item2": make_item("item2", "has recycle", value=10, recycles_into={"mat1": 3}),
+            "item2": make_item(
+                "item2", "has recycle", value=10, recycles_into={"mat1": 3}
+            ),
             "mat1": make_item("mat1", "material", value=50),
         }
         table = build_deep_recycle_table(items)
@@ -361,9 +388,15 @@ class TestAnalyzeRecycle:
     def test_items_sorted_by_margin_ascending(self):
         """should sort by margin ascending (most negative = biggest recycle advantage)."""
         items = {
-            "item1": make_item("item1", "small margin", value=10, recycles_into={"mat1": 3}),
-            "item2": make_item("item2", "large margin", value=5, recycles_into={"mat1": 5}),
-            "item3": make_item("item3", "mid margin", value=20, recycles_into={"mat1": 2}),
+            "item1": make_item(
+                "item1", "small margin", value=10, recycles_into={"mat1": 3}
+            ),
+            "item2": make_item(
+                "item2", "large margin", value=5, recycles_into={"mat1": 5}
+            ),
+            "item3": make_item(
+                "item3", "mid margin", value=20, recycles_into={"mat1": 2}
+            ),
             "mat1": make_item("mat1", "material", value=30),
         }
         table = build_deep_recycle_table(items)
@@ -417,7 +450,9 @@ class TestAnalyzeOptimize:
     def test_items_above_sell_threshold_go_to_sell_list(self):
         """should place high-value sell items in sell list."""
         items = {
-            "item1": make_item("item1", "valuable", value=100, recycles_into={"mat1": 3}),
+            "item1": make_item(
+                "item1", "valuable", value=100, recycles_into={"mat1": 3}
+            ),
             "mat1": make_item("mat1", "material", value=10),
         }
         table = build_deep_recycle_table(items)
@@ -436,7 +471,9 @@ class TestAnalyzeOptimize:
     def test_items_above_recycle_threshold_go_to_recycle_list(self):
         """should place high-value recycle items in recycle list."""
         items = {
-            "item1": make_item("item1", "recyclable", value=10, recycles_into={"mat1": 3}),
+            "item1": make_item(
+                "item1", "recyclable", value=10, recycles_into={"mat1": 3}
+            ),
             "mat1": make_item("mat1", "valuable material", value=50),
         }
         table = build_deep_recycle_table(items)
@@ -455,8 +492,12 @@ class TestAnalyzeOptimize:
     def test_min_profit_threshold_filters_low_margin_items(self):
         """should exclude items below profit threshold."""
         items = {
-            "item1": make_item("item1", "low margin", value=100, recycles_into={"mat1": 3}),
-            "item2": make_item("item2", "high margin", value=200, recycles_into={"mat1": 3}),
+            "item1": make_item(
+                "item1", "low margin", value=100, recycles_into={"mat1": 3}
+            ),
+            "item2": make_item(
+                "item2", "high margin", value=200, recycles_into={"mat1": 3}
+            ),
             "mat1": make_item("mat1", "material", value=30),
         }
         table = build_deep_recycle_table(items)
@@ -503,7 +544,9 @@ class TestAnalyzeOptimize:
         items = {
             "sell1": make_item("sell1", "sell item 1", value=100),
             "sell2": make_item("sell2", "sell item 2", value=200),
-            "recycle1": make_item("recycle1", "recycle item", value=10, recycles_into={"mat1": 3}),
+            "recycle1": make_item(
+                "recycle1", "recycle item", value=10, recycles_into={"mat1": 3}
+            ),
             "hold1": make_item("hold1", "hold item", value=50),
             "mat1": make_item("mat1", "material", value=50),
         }
@@ -613,7 +656,9 @@ class TestEdgeCases:
     def test_material_not_found_in_items_dict_recycle_value_is_zero(self):
         """should handle missing materials in recycle calculation gracefully."""
         items = {
-            "item1": make_item("item1", "mystery item", value=100, recycles_into={"unknown_mat": 5}),
+            "item1": make_item(
+                "item1", "mystery item", value=100, recycles_into={"unknown_mat": 5}
+            ),
         }
         table = build_deep_recycle_table(items)
 
@@ -628,8 +673,15 @@ class TestEdgeCases:
     def test_deep_recycle_beats_shallow_for_intermediate_materials(self):
         """deep recycle should correctly value items with multi-level chains."""
         items = {
-            "weapon": make_item("weapon", "Big Gun", value=5000, recycles_into={"mech_comp": 5}),
-            "mech_comp": make_item("mech_comp", "Mechanical Components", value=640, recycles_into={"metal": 3, "rubber": 2}),
+            "weapon": make_item(
+                "weapon", "Big Gun", value=5000, recycles_into={"mech_comp": 5}
+            ),
+            "mech_comp": make_item(
+                "mech_comp",
+                "Mechanical Components",
+                value=640,
+                recycles_into={"metal": 3, "rubber": 2},
+            ),
             "metal": make_item("metal", "Metal Parts", value=75),
             "rubber": make_item("rubber", "Rubber Parts", value=50),
         }
