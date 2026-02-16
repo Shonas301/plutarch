@@ -21,9 +21,11 @@ parts/
 *.egg
 .ruff_cache/
 .python-version
+*.key
 discord.log
 *.mp3
 *.mp4
 *.wav
 .mypy_cache
 discord-ext-voice-recv
+.arc
