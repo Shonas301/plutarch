@@ -93,7 +93,13 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
         if state.player is None:
             state.player = PlayerChannelState()
 
-        source = await get_source(url)
+        try:
+            source = await get_source(url)
+        except Exception:
+            logger.exception("failed to resolve audio source for url: %s", url)
+            await ctx.send(f"Could not get audio from that URL.")
+            return
+
         state.player.playing = url
         await self._play(state, source)
 
@@ -159,13 +165,43 @@ class AudioLinkPlayer(commands.Cog, VoiceChannelCog, metaclass=VoiceMeta):
     async def _play(self, state: ChannelState, source):
         logger.debug("_play called")
         if state.client is None:
+            logger.error("_play: state.client is None, cannot play")
             return
-        state.client.play(
-            discord.FFmpegPCMAudio(source, executable=FFMPEG, **FFMPEG_OPTS),
-            after=lambda e: print("done", e),
-        )
+
+        playback_error: list[Exception | None] = [None]
+
+        def _after(error: Exception | None) -> None:
+            if error is not None:
+                logger.error("playback error: %s", error)
+            playback_error[0] = error
+
+        try:
+            state.client.play(
+                discord.FFmpegPCMAudio(source, executable=FFMPEG, **FFMPEG_OPTS),
+                after=_after,
+            )
+        except Exception:
+            logger.exception("failed to start playback for source: %s", source)
+            return
+
+        # brief pause to let ffmpeg spin up before polling
+        await asyncio.sleep(0.5)
+
+        if state.client is not None and not state.client.is_playing():
+            logger.error(
+                "playback did not start — source: %s, ffmpeg: %s, error: %s",
+                source,
+                FFMPEG,
+                playback_error[0],
+            )
+            return
+
         while state.client is not None and state.client.is_playing():
             await asyncio.sleep(1)
+
+        if playback_error[0] is not None:
+            logger.error("playback ended with error: %s", playback_error[0])
+
         # check if there are more songs in the queue
         if state.player is not None and len(state.player.queue) > 0:
             next_song = state.player.queue.pop(0)

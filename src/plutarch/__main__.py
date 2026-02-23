@@ -30,7 +30,7 @@ def init_logging() -> logging.Handler:
         maxBytes=32 * 1024 * 1024,  # 32 MiB
         backupCount=5,  # Rotate through 5 files
     )
-    dt_fmt = "%Y-%m-%d %H:%M:%S"
+    dt_fmt = "%H:%M:%S"
     formatter = logging.Formatter(
         "[{asctime}] [{levelname:<8}] {name}: {message}", dt_fmt, style="{"
     )

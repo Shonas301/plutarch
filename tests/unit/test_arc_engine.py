@@ -5,6 +5,7 @@ from plutarch.arc.engine import (
     analyze_recycle,
     analyze_sell,
     build_deep_recycle_table,
+    find_recycle_sources,
 )
 from plutarch.arc.models import (
     Item,
@@ -700,3 +701,209 @@ class TestEdgeCases:
         assert result[0].item_id == "weapon"
         assert result[0].sell_value == 5000
         assert result[0].recycle_value == 3200
+
+
+# -- tests for find_recycle_sources --
+
+
+class TestFindRecycleSources:
+    """tests for the reverse recycle source finder."""
+
+    def test_direct_source_found(self):
+        """should find items that directly recycle into the target."""
+        items = {
+            "weapon": make_item(
+                "weapon", "Weapon", value=100, recycles_into={"metal": 3}
+            ),
+            "metal": make_item("metal", "Metal Parts", value=50),
+        }
+        stash = [make_stash_item("weapon", quantity=5, name="Weapon")]
+
+        target, sources = find_recycle_sources("Metal Parts", stash, items)
+
+        assert target is not None
+        assert target.id == "metal"
+        assert len(sources) == 1
+        assert sources[0].item_id == "weapon"
+        assert sources[0].yield_per_unit == 3
+        assert sources[0].total_yield == 15
+        assert sources[0].depth == 1
+
+    def test_recursive_source_found(self):
+        """should find items that transitively recycle into the target."""
+        items = {
+            "weapon": make_item(
+                "weapon", "Weapon", value=5000, recycles_into={"mech_comp": 5}
+            ),
+            "mech_comp": make_item(
+                "mech_comp",
+                "Mech Comp",
+                value=640,
+                recycles_into={"metal": 3, "rubber": 2},
+            ),
+            "metal": make_item("metal", "Metal Parts", value=75),
+            "rubber": make_item("rubber", "Rubber Parts", value=50),
+        }
+        stash = [
+            make_stash_item("weapon", quantity=2, name="Weapon"),
+            make_stash_item("mech_comp", quantity=10, name="Mech Comp"),
+        ]
+
+        target, sources = find_recycle_sources("Metal Parts", stash, items)
+
+        assert target is not None
+        assert target.id == "metal"
+        assert len(sources) == 2
+
+        # both have total_yield=30, check both present
+        source_ids = {s.item_id for s in sources}
+        assert source_ids == {"weapon", "mech_comp"}
+
+        mech = next(s for s in sources if s.item_id == "mech_comp")
+        assert mech.yield_per_unit == 3
+        assert mech.total_yield == 30
+        assert mech.depth == 1
+
+        weapon = next(s for s in sources if s.item_id == "weapon")
+        assert weapon.yield_per_unit == 15
+        assert weapon.total_yield == 30
+        assert weapon.depth == 2
+
+    def test_chain_names_correct(self):
+        """should build correct chain path from source to target."""
+        items = {
+            "weapon": make_item(
+                "weapon", "Big Gun", value=5000, recycles_into={"mech_comp": 5}
+            ),
+            "mech_comp": make_item(
+                "mech_comp",
+                "Mech Comp",
+                value=640,
+                recycles_into={"metal": 3},
+            ),
+            "metal": make_item("metal", "Metal Parts", value=75),
+        }
+        stash = [make_stash_item("weapon", quantity=1, name="Big Gun")]
+
+        _, sources = find_recycle_sources("Metal Parts", stash, items)
+
+        assert len(sources) == 1
+        assert sources[0].chain == ["Big Gun", "Mech Comp", "Metal Parts"]
+
+    def test_no_match_returns_none(self):
+        """should return None target when query matches nothing."""
+        items = {
+            "metal": make_item("metal", "Metal Parts", value=50),
+        }
+        stash = [make_stash_item("metal", quantity=5)]
+
+        target, sources = find_recycle_sources("Nonexistent Item", stash, items)
+
+        assert target is None
+        assert sources == []
+
+    def test_no_stash_items_produce_target(self):
+        """should return empty sources when nothing in stash recycles into target."""
+        items = {
+            "weapon": make_item(
+                "weapon", "Weapon", value=100, recycles_into={"metal": 3}
+            ),
+            "metal": make_item("metal", "Metal Parts", value=50),
+        }
+        # stash has metal but not weapon
+        stash = [make_stash_item("metal", quantity=5)]
+
+        target, sources = find_recycle_sources("Metal Parts", stash, items)
+
+        assert target is not None
+        assert target.id == "metal"
+        assert len(sources) == 0
+
+    def test_case_insensitive_name_match(self):
+        """should match target name case-insensitively."""
+        items = {
+            "weapon": make_item(
+                "weapon", "Weapon", value=100, recycles_into={"metal": 3}
+            ),
+            "metal": make_item("metal", "Metal Parts", value=50),
+        }
+        stash = [make_stash_item("weapon", quantity=1)]
+
+        target, sources = find_recycle_sources("metal parts", stash, items)
+
+        assert target is not None
+        assert target.id == "metal"
+        assert len(sources) == 1
+
+    def test_substring_name_match(self):
+        """should match target by substring when no exact match."""
+        items = {
+            "weapon": make_item(
+                "weapon", "Weapon", value=100, recycles_into={"metal": 3}
+            ),
+            "metal": make_item("metal", "Metal Parts", value=50),
+        }
+        stash = [make_stash_item("weapon", quantity=1)]
+
+        target, sources = find_recycle_sources("Metal", stash, items)
+
+        assert target is not None
+        assert target.id == "metal"
+        assert len(sources) == 1
+
+    def test_three_depth_chain(self):
+        """should follow 3-deep recycle chains."""
+        items = {
+            "top": make_item(
+                "top", "Top Item", value=1000, recycles_into={"mid": 2}
+            ),
+            "mid": make_item(
+                "mid", "Mid Item", value=500, recycles_into={"low": 4}
+            ),
+            "low": make_item(
+                "low", "Low Item", value=100, recycles_into={"base": 3}
+            ),
+            "base": make_item("base", "Base Mat", value=10),
+        }
+        stash = [make_stash_item("top", quantity=1, name="Top Item")]
+
+        target, sources = find_recycle_sources("Base Mat", stash, items)
+
+        assert target is not None
+        assert len(sources) == 1
+        assert sources[0].item_id == "top"
+        # 2 * 4 * 3 = 24
+        assert sources[0].yield_per_unit == 24
+        assert sources[0].depth == 3
+        assert sources[0].chain == ["Top Item", "Mid Item", "Low Item", "Base Mat"]
+
+    def test_empty_query_returns_none(self):
+        """should return None for empty query string."""
+        items = {"metal": make_item("metal", "Metal Parts", value=50)}
+        stash = []
+
+        target, sources = find_recycle_sources("", stash, items)
+
+        assert target is None
+        assert sources == []
+
+    def test_multiple_sources_sorted_by_total_yield(self):
+        """should sort sources by total_yield descending."""
+        items = {
+            "a": make_item("a", "Item A", value=100, recycles_into={"target": 2}),
+            "b": make_item("b", "Item B", value=100, recycles_into={"target": 10}),
+            "c": make_item("c", "Item C", value=100, recycles_into={"target": 5}),
+            "target": make_item("target", "Target", value=50),
+        }
+        stash = [
+            make_stash_item("a", quantity=3, name="Item A"),  # total: 6
+            make_stash_item("b", quantity=1, name="Item B"),  # total: 10
+            make_stash_item("c", quantity=4, name="Item C"),  # total: 20
+        ]
+
+        _, sources = find_recycle_sources("Target", stash, items)
+
+        assert len(sources) == 3
+        assert sources[0].item_id == "c"  # 20
+        assert sources[1].item_id == "b"  # 10
+        assert sources[2].item_id == "a"  # 6

@@ -460,3 +460,16 @@ class OptimizeResult:
     total_sell_value: int
     total_recycle_value: int
     total_hold_count: int
+
+
+@dataclass
+class RecycleSource:
+    """a stash item that produces the target item via recycling."""
+
+    item_id: str
+    name: str  # english name from item catalog
+    quantity: int  # how many in stash
+    yield_per_unit: int  # target items produced per unit recycled
+    total_yield: int  # yield_per_unit * quantity
+    depth: int  # 1 = direct, 2+ = via intermediates
+    chain: list[str] = field(default_factory=list)  # recycle path names

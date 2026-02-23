@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from plutarch.arc.models import Recommendation
+    from plutarch.arc.models import Recommendation, RecycleSource
 
 # -- ansi color code constants --
 
@@ -82,6 +82,20 @@ OPT_MAX_ROWS_PER_EMBED = 21
 # without footer: 207 - 49 + 131N <= 4096 => 158 + 131N <= 4096 => N = 30
 SELL_RCL_MAX_ROWS_WITH_FOOTER = 29
 SELL_RCL_MAX_ROWS_PER_EMBED = 30
+
+# -- pagination limits for find layout (4 columns, 3 colored) --
+# visual line width: 20 + 5 + 7 + 7 = 39 content + 5 pipes + 8 padding = 52
+# ansi overhead per row: 3 colored columns * 11 chars = 33
+# data row: 52 + 33 + 1 (newline) = 86 chars
+# separator: 52 + 1 = 53 chars
+# fixed chrome: 8 (```ansi\n) + 53*4 (borders/header) + 3 (```) = 223
+# footer (worst case): 64 chars
+# with footer: 223 + 64 + 86N + 53(N-1) <= 4096 => 234 + 139N <= 4096 => N = 27
+# without footer: 223 - 53 + 139N <= 4096 => 170 + 139N <= 4096 => N = 28
+COL_YIELD_WIDTH = 7
+COL_TOTAL_WIDTH = 7
+FIND_MAX_ROWS_WITH_FOOTER = 27
+FIND_MAX_ROWS_PER_EMBED = 28
 
 # -- legacy constants (kept for backwards compatibility with existing tests) --
 # these match the old non-colored 5-column layout char budget
@@ -725,3 +739,137 @@ def _format_multi_embed_with_total(
         desc = _embed_from_spec(spec, chunk)
         pages.append(desc)
     return pages
+
+
+def _find_table_spec() -> TableSpec:
+    """Return the table spec for recycle source find tables.
+
+    4 columns: Item | Qty | Yield | Total (ansi colored).
+
+    Returns:
+        TableSpec for the find layout
+    """
+    return TableSpec(
+        headers=["Item", "Qty", "Yield", "Total"],
+        alignments=["l", "r", "r", "r"],
+        max_widths=[COL_ITEM_WIDTH, COL_QTY_WIDTH, COL_YIELD_WIDTH, COL_TOTAL_WIDTH],
+        cell_colors=[ANSI_BOLD_BLUE, None, ANSI_GREEN, ANSI_GREEN],
+    )
+
+
+def _recycle_source_to_row(source: RecycleSource) -> list[str]:
+    """Convert a RecycleSource to a find-layout table row.
+
+    Args:
+        source: recycle source result
+
+    Returns:
+        list of cell strings: [name, qty, yield_per_unit, total_yield]
+    """
+    return [
+        source.name,
+        str(source.quantity),
+        _format_number(source.yield_per_unit),
+        _format_number(source.total_yield),
+    ]
+
+
+def format_recycle_sources(
+    sources: Sequence[RecycleSource],
+    target_name: str,
+    *,
+    show_all: bool = False,
+    command_hint: str = "%arcfind all",
+) -> tuple[list[str], bool]:
+    """Format recycle source results into embed descriptions with chain info.
+
+    produces a 4-column table (Item, Qty, Yield, Total) followed by chain
+    descriptions for indirect sources.
+
+    Args:
+        sources: list of RecycleSource results
+        target_name: resolved target item name (for chain display)
+        show_all: if True, paginate across multiple embeds
+        command_hint: command shown in truncation footer
+
+    Returns:
+        tuple of (list of embed descriptions, was_truncated)
+    """
+    if not sources:
+        return [f"No stash items recycle into **{target_name}**."], False
+
+    spec = _find_table_spec()
+    all_rows = [_recycle_source_to_row(s) for s in sources]
+
+    # build chain descriptions for indirect sources
+    chain_lines = []
+    for source in sources:
+        if source.depth > 1:
+            chain_str = " \u2192 ".join(source.chain)
+            chain_lines.append(f"`{chain_str}` (\u00d7{source.yield_per_unit}/unit)")
+
+    chain_text = ""
+    if chain_lines:
+        chain_text = "\n**Recycle chains:**\n" + "\n".join(chain_lines)
+
+    if not show_all:
+        truncated = len(all_rows) > FIND_MAX_ROWS_WITH_FOOTER
+        display_rows = all_rows[:FIND_MAX_ROWS_WITH_FOOTER]
+        remaining = len(all_rows) - FIND_MAX_ROWS_WITH_FOOTER
+
+        footer = None
+        if truncated:
+            noun = "item" if remaining == 1 else "items"
+            footer = (
+                f"... and {remaining} more {noun}."
+                f" use {command_hint} to see everything"
+            )
+
+        desc = _embed_from_spec(spec, display_rows, footer=footer)
+        # append chain info after the table if it fits
+        if chain_text:
+            desc = _append_chain_text(desc, chain_lines)
+        return [desc], truncated
+
+    # multi-embed mode
+    pages = _format_multi_embed_colored(spec, all_rows, FIND_MAX_ROWS_PER_EMBED)
+    # append chain info to last page if it fits
+    if chain_text and pages:
+        pages[-1] = _append_chain_text(pages[-1], chain_lines)
+    return pages, False
+
+
+# max embed description length
+_DESC_LIMIT = 4096
+
+
+def _append_chain_text(desc: str, chain_lines: list[str]) -> str:
+    """Append chain descriptions to an embed description, truncating to fit.
+
+    Args:
+        desc: existing embed description (table)
+        chain_lines: formatted chain lines to append
+
+    Returns:
+        description with as many chain lines as fit within 4096 chars
+    """
+    header = "\n**Recycle chains:**\n"
+    budget = _DESC_LIMIT - len(desc) - len(header)
+
+    if budget <= 0:
+        return desc
+
+    included = []
+    used = 0
+    for line in chain_lines:
+        # +1 for the newline separator
+        cost = len(line) + (1 if included else 0)
+        if used + cost > budget:
+            break
+        included.append(line)
+        used += cost
+
+    if not included:
+        return desc
+
+    return desc + header + "\n".join(included)
